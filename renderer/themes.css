@@ -1,0 +1,278 @@
+/*
+ * Theme palettes for JSONL Viewer.
+ *
+ * Each theme defines the same set of CSS custom properties. The default
+ * (no data-theme attribute) is Mocha (Catppuccin) for backward compatibility
+ * with the previous `dark` value. Every palette also exposes:
+ *
+ *   --accent-rgb      "R, G, B" triplet of the accent color, used to build
+ *                      translucent overlays (selection, hover, drop hint)
+ *                      without needing per-theme rgba() overrides.
+ *   --primary-fg      Foreground color for primary (accent-filled) buttons.
+ *   --primary-hover   Background of primary buttons on hover.
+ *   --selected        Background tint applied to the currently selected row.
+ *   --drop-overlay-bg Background tint for the drag-and-drop overlay.
+ *
+ * The JSON syntax highlighting classes (.k / .s / .n / .b / .null / .punc)
+ * in styles.css reference --accent / --green / --orange / --accent-2 /
+ * --text-faint, so each theme automatically recolors JSON output too.
+ */
+
+:root {
+  /* Mocha (Catppuccin) — default dark theme */
+  --bg: #1e1e2e;
+  --bg-soft: #181825;
+  --bg-elev: #313244;
+  --border: #45475a;
+  --text: #cdd6f4;
+  --text-dim: #a6adc8;
+  --text-faint: #6c7086;
+  --accent: #89b4fa;
+  --accent-2: #f5c2e7;
+  --green: #a6e3a1;
+  --yellow: #f9e2af;
+  --red: #f38ba8;
+  --orange: #fab387;
+  --btn-hover: #45475a;
+  --row-hover: rgba(137, 180, 250, 0.06);
+  --accent-rgb: 137, 180, 250;
+  --primary-fg: #11111b;
+  --primary-hover: #b4d0fb;
+  --selected: rgba(137, 180, 250, 0.16);
+  --drop-overlay-bg: rgba(137, 180, 250, 0.12);
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+:root[data-theme="dark"] {
+  /* Mocha (Catppuccin) — same as the default; kept as an explicit key so the
+     legacy `dark` localStorage value continues to work. */
+  --bg: #1e1e2e;
+  --bg-soft: #181825;
+  --bg-elev: #313244;
+  --border: #45475a;
+  --text: #cdd6f4;
+  --text-dim: #a6adc8;
+  --text-faint: #6c7086;
+  --accent: #89b4fa;
+  --accent-2: #f5c2e7;
+  --green: #a6e3a1;
+  --yellow: #f9e2af;
+  --red: #f38ba8;
+  --orange: #fab387;
+  --btn-hover: #45475a;
+  --row-hover: rgba(137, 180, 250, 0.06);
+  --accent-rgb: 137, 180, 250;
+  --primary-fg: #11111b;
+  --primary-hover: #b4d0fb;
+  --selected: rgba(137, 180, 250, 0.16);
+  --drop-overlay-bg: rgba(137, 180, 250, 0.12);
+}
+
+:root[data-theme="light"] {
+  /* Latte (Catppuccin) — default light theme */
+  --bg: #eff1f5;
+  --bg-soft: #e6e9ef;
+  --bg-elev: #dce0e8;
+  --border: #bcc0cc;
+  --text: #4c4f69;
+  --text-dim: #6c6f85;
+  --text-faint: #9ca0b0;
+  --accent: #1e66f5;
+  --accent-2: #ea76cb;
+  --green: #40a02b;
+  --yellow: #df8e1d;
+  --red: #d20f39;
+  --orange: #fe640b;
+  --btn-hover: #ccd0e0;
+  --row-hover: rgba(30, 102, 245, 0.07);
+  --accent-rgb: 30, 102, 245;
+  --primary-fg: #eff1f5;
+  --primary-hover: #4c81f7;
+  --selected: rgba(30, 102, 245, 0.14);
+  --drop-overlay-bg: rgba(30, 102, 245, 0.10);
+}
+
+:root[data-theme="tokyo-night"] {
+  --bg: #1a1b26;
+  --bg-soft: #16161e;
+  --bg-elev: #24283b;
+  --border: #2f334d;
+  --text: #c0caf5;
+  --text-dim: #a9b1d6;
+  --text-faint: #565f89;
+  --accent: #7aa2f7;
+  --accent-2: #bb9af7;
+  --green: #9ece6a;
+  --yellow: #e0af68;
+  --red: #f7768e;
+  --orange: #ff9e64;
+  --btn-hover: #292e42;
+  --row-hover: rgba(122, 162, 247, 0.08);
+  --accent-rgb: 122, 162, 247;
+  --primary-fg: #1a1b26;
+  --primary-hover: #89b1fa;
+  --selected: rgba(122, 162, 247, 0.18);
+  --drop-overlay-bg: rgba(122, 162, 247, 0.12);
+}
+
+:root[data-theme="dracula"] {
+  --bg: #282a36;
+  --bg-soft: #21222c;
+  --bg-elev: #44475a;
+  --border: #6272a4;
+  --text: #f8f8f2;
+  --text-dim: #bdc7e0;
+  --text-faint: #6272a4;
+  --accent: #bd93f9;
+  --accent-2: #ff79c6;
+  --green: #50fa7b;
+  --yellow: #f1fa8c;
+  --red: #ff5555;
+  --orange: #ffb86c;
+  --btn-hover: #44475a;
+  --row-hover: rgba(189, 147, 249, 0.10);
+  --accent-rgb: 189, 147, 249;
+  --primary-fg: #282a36;
+  --primary-hover: #caa9fa;
+  --selected: rgba(189, 147, 249, 0.20);
+  --drop-overlay-bg: rgba(189, 147, 249, 0.14);
+}
+
+:root[data-theme="gruvbox-dark"] {
+  --bg: #282828;
+  --bg-soft: #1d2021;
+  --bg-elev: #3c3836;
+  --border: #504945;
+  --text: #ebdbb2;
+  --text-dim: #d5c4a1;
+  --text-faint: #928374;
+  --accent: #83a598;
+  --accent-2: #d3869b;
+  --green: #b8bb26;
+  --yellow: #fabd2f;
+  --red: #fb4934;
+  --orange: #fe8019;
+  --btn-hover: #504945;
+  --row-hover: rgba(131, 165, 152, 0.10);
+  --accent-rgb: 131, 165, 152;
+  --primary-fg: #282828;
+  --primary-hover: #9bb5a8;
+  --selected: rgba(131, 165, 152, 0.18);
+  --drop-overlay-bg: rgba(131, 165, 152, 0.12);
+}
+
+:root[data-theme="solarized-dark"] {
+  --bg: #002b36;
+  --bg-soft: #073642;
+  --bg-elev: #094858;
+  --border: #586e75;
+  --text: #93a1a1;
+  --text-dim: #839496;
+  --text-faint: #657b83;
+  --accent: #268bd2;
+  --accent-2: #d33682;
+  --green: #859900;
+  --yellow: #b58900;
+  --red: #dc322f;
+  --orange: #cb4b16;
+  --btn-hover: #586e75;
+  --row-hover: rgba(38, 139, 210, 0.10);
+  --accent-rgb: 38, 139, 210;
+  --primary-fg: #002b36;
+  --primary-hover: #4ba6e3;
+  --selected: rgba(38, 139, 210, 0.20);
+  --drop-overlay-bg: rgba(38, 139, 210, 0.14);
+}
+
+:root[data-theme="solarized-light"] {
+  --bg: #fdf6e3;
+  --bg-soft: #eee8d5;
+  --bg-elev: #e3dcc3;
+  --border: #93a1a1;
+  --text: #586e75;
+  --text-dim: #657b83;
+  --text-faint: #93a1a1;
+  --accent: #268bd2;
+  --accent-2: #d33682;
+  --green: #859900;
+  --yellow: #b58900;
+  --red: #dc322f;
+  --orange: #cb4b16;
+  --btn-hover: #d6cfb6;
+  --row-hover: rgba(38, 139, 210, 0.08);
+  --accent-rgb: 38, 139, 210;
+  --primary-fg: #fdf6e3;
+  --primary-hover: #4ba6e3;
+  --selected: rgba(38, 139, 210, 0.14);
+  --drop-overlay-bg: rgba(38, 139, 210, 0.10);
+}
+
+:root[data-theme="github-dark"] {
+  --bg: #0d1117;
+  --bg-soft: #161b22;
+  --bg-elev: #21262d;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --text-dim: #8b949e;
+  --text-faint: #6e7681;
+  --accent: #58a6ff;
+  --accent-2: #d2a8ff;
+  --green: #3fb950;
+  --yellow: #e3b341;
+  --red: #f85149;
+  --orange: #db6d28;
+  --btn-hover: #30363d;
+  --row-hover: rgba(88, 166, 255, 0.08);
+  --accent-rgb: 88, 166, 255;
+  --primary-fg: #0d1117;
+  --primary-hover: #79b8ff;
+  --selected: rgba(88, 166, 255, 0.18);
+  --drop-overlay-bg: rgba(88, 166, 255, 0.12);
+}
+
+:root[data-theme="github-light"] {
+  --bg: #ffffff;
+  --bg-soft: #f6f8fa;
+  --bg-elev: #eaeef2;
+  --border: #d0d7de;
+  --text: #1f2328;
+  --text-dim: #57606a;
+  --text-faint: #818b98;
+  --accent: #0969da;
+  --accent-2: #bf3989;
+  --green: #1a7f37;
+  --yellow: #9a6700;
+  --red: #cf222e;
+  --orange: #bc4c00;
+  --btn-hover: #d8dee4;
+  --row-hover: rgba(9, 105, 218, 0.08);
+  --accent-rgb: 9, 105, 218;
+  --primary-fg: #ffffff;
+  --primary-hover: #218bff;
+  --selected: rgba(9, 105, 218, 0.12);
+  --drop-overlay-bg: rgba(9, 105, 218, 0.08);
+}
+
+:root[data-theme="one-dark"] {
+  --bg: #282c34;
+  --bg-soft: #21252b;
+  --bg-elev: #2c313a;
+  --border: #3b4048;
+  --text: #abb2bf;
+  --text-dim: #9da5b4;
+  --text-faint: #5c6370;
+  --accent: #61afef;
+  --accent-2: #c678dd;
+  --green: #98c379;
+  --yellow: #e5c07b;
+  --red: #e06c75;
+  --orange: #d19a66;
+  --btn-hover: #3b4048;
+  --row-hover: rgba(97, 175, 239, 0.10);
+  --accent-rgb: 97, 175, 239;
+  --primary-fg: #282c34;
+  --primary-hover: #82c1f3;
+  --selected: rgba(97, 175, 239, 0.18);
+  --drop-overlay-bg: rgba(97, 175, 239, 0.12);
+}
