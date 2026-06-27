@@ -2,7 +2,7 @@
 
 A small desktop Electron app for viewing and inspecting `.jsonl` / `.ndjson` (JSON Lines) files.
 
-![JSONL Viewer](./images/jsonl-editor.png?v=2)
+![JSONL Viewer](./images/jsonl-editor-v2.png)
 
 ## Features
 
