@@ -7,5 +7,15 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('file:readRange', filePath, startLine, count),
   saveFile: (defaultName) => ipcRenderer.invoke('dialog:saveFile', defaultName),
   writeFile: (filePath, contents) => ipcRenderer.invoke('file:write', filePath, contents),
-  onAutoOpen: (cb) => ipcRenderer.on('auto-open', (_e, filePath) => cb(filePath))
+  updateRecent: (list) => ipcRenderer.invoke('recent:update', list),
+  onAutoOpen: (cb) => ipcRenderer.on('auto-open', (_e, filePath) => cb(filePath)),
+  onMenu: (cb) => ipcRenderer.on('menu:open', () => cb('open'))
+    .on('menu:save', () => cb('save'))
+    .on('menu:save-as', () => cb('save-as'))
+    .on('menu:open-file', (_e, p) => cb('open-file', p))
+    .on('menu:copy-json', () => cb('copy-json'))
+    .on('menu:copy-raw', () => cb('copy-raw'))
+    .on('menu:view', (_e, v) => cb('view', v))
+    .on('menu:toggle-theme', () => cb('toggle-theme'))
+    .on('menu:clear-recent', () => cb('clear-recent'))
 });

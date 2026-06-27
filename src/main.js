@@ -1,8 +1,9 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
 let mainWindow;
+let recentFiles = [];
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -33,7 +34,96 @@ function createWindow() {
 
   // Allow dragging a file onto the window
   mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
+
+  buildMenu();
 }
+
+// ---- Application menu ----
+function send(channel, ...args) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, ...args);
+  }
+}
+
+function buildMenu() {
+  const isMac = process.platform === 'darwin';
+  const recentTemplate = recentFiles.length
+    ? [
+        ...recentFiles.map((p) => ({
+          label: p.split(/[\\/]/).pop(),
+          sublabel: p,
+          click: () => send('menu:open-file', p)
+        })),
+        { type: 'separator' },
+        { label: 'Clear Recent History', click: () => send('menu:clear-recent') }
+      ]
+    : [{ label: 'No recent files', enabled: false }];
+
+  const template = [
+    ...(isMac ? [{
+      role: 'appMenu', submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    }] : []),
+    {
+      label: 'File',
+      submenu: [
+        { label: 'Open File…', accelerator: 'CmdOrCtrl+O', click: () => send('menu:open') },
+        { label: 'Open Recent', submenu: recentTemplate },
+        { type: 'separator' },
+        { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => send('menu:save') },
+        { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => send('menu:save-as') },
+        { type: 'separator' },
+        isMac ? { role: 'close' } : { role: 'quit' }
+      ]
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'copy' },
+        { role: 'selectAll' },
+        { type: 'separator' },
+        { label: 'Copy JSON (selected row)', click: () => send('menu:copy-json') },
+        { label: 'Copy raw (selected row)', click: () => send('menu:copy-raw') }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'toggledevtools' },
+        { type: 'separator' },
+        { label: 'Table', click: () => send('menu:view', 'table') },
+        { label: 'Tree', click: () => send('menu:view', 'tree') },
+        { label: 'Raw', click: () => send('menu:view', 'raw') },
+        { type: 'separator' },
+        { label: 'Toggle Theme', click: () => send('menu:toggle-theme') }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        ...(isMac ? [{ type: 'separator' }, { role: 'front' }] : [{ role: 'close' }])
+      ]
+    }
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+ipcMain.handle('recent:update', (_e, list) => {
+  recentFiles = Array.isArray(list) ? list.filter((p) => typeof p === 'string') : [];
+  buildMenu();
+  return true;
+});
 
 app.whenReady().then(() => {
   createWindow();

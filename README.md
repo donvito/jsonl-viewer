@@ -14,7 +14,9 @@ A small desktop Electron app for viewing and inspecting `.jsonl` / `.ndjson` (JS
 - **Row preview sidebar** — click any row to show its full pretty-printed JSON and raw line in a right sidebar, with copy-to-clipboard and close controls.
 - **Resizable columns** — drag the right edge of any table header to resize; widths persist across sessions via `localStorage`.
 - **Column visibility** — a *Columns* button (Table view) opens a dropdown of checkboxes to show/hide individual columns; preference persists via `localStorage`.
-- **Edit mode** — toggle the *Edit* button to make Table cells, Raw lines, and the sidebar's formatted JSON editable; changes re-parse and update the line in place. Use *Save* to write the edited lines to a new `.jsonl` file.
+- **Edit mode** — toggle the *Edit* button to make Table cells, Raw lines, and the sidebar's formatted JSON editable; changes re-parse and update the line in place. **Save** silently overwrites the current file (also `Cmd/Ctrl+S`); **Save as…** (File menu / `Cmd/Ctrl+Shift+S`) opens a dialog to write a new file.
+- **Native menus** — File menu (Open File, Open Recent submenu with Clear History, Save, Save As), Edit menu (Copy / Copy JSON / Copy raw of the selected row), View menu (switch views, toggle theme, dev tools).
+- **Open recent** — the File → Open Recent submenu lists recently opened files (persisted via `localStorage`); click one to reopen, or **Clear Recent History** to wipe the list.
 - **Light / dark theme** — toggle button in the toolbar; preference is remembered via `localStorage`.
 - **Parse-error tolerance** — invalid lines are flagged inline with the error message rather than breaking the whole view.
 - macOS-style hidden inset title bar with a draggable toolbar.

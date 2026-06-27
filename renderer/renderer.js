@@ -16,13 +16,13 @@ const state = {
   columnWidths: {},
   showSidebarRaw: false,
   allKeys: [],
-  columnVisibility: {}
+  columnVisibility: {},
+  recent: []
 };
 
 const $ = (sel) => document.querySelector(sel);
 
 const els = {
-  openBtn: $('#openBtn'),
   loadMoreBtn: $('#loadMoreBtn'),
   themeToggle: $('#themeToggle'),
   editToggle: $('#editToggle'),
@@ -44,7 +44,8 @@ const els = {
   treeExpandAll: $('#treeExpandAll'),
   treeCollapseAll: $('#treeCollapseAll'),
   emptyState: $('#emptyState'),
-  dropOverlay: $('#dropOverlay')
+  dropOverlay: $('#dropOverlay'),
+  ctxMenu: $('#ctxMenu')
 };
 
 const COL_DEFAULTS = { line: 60, actions: 44, __value: 220 };
@@ -83,6 +84,23 @@ function persistColumnVisibility() {
     if (v) state.columnVisibility = JSON.parse(v);
   } catch (e) {}
 })();
+
+// ---- Recent files ----
+function persistRecent() {
+  try { localStorage.setItem('jsonl-viewer:recent', JSON.stringify(state.recent)); } catch (e) {}
+  if (window.api && window.api.updateRecent) window.api.updateRecent(state.recent);
+}
+(function loadRecent() {
+  try {
+    const r = localStorage.getItem('jsonl-viewer:recent');
+    if (r) state.recent = JSON.parse(r).filter((p) => typeof p === 'string');
+  } catch (e) {}
+})();
+function addRecent(filePath) {
+  if (!filePath) return;
+  state.recent = [filePath, ...state.recent.filter((p) => p !== filePath)].slice(0, 10);
+  persistRecent();
+}
 
 // ---- Theme ----
 function applyTheme(theme) {
@@ -549,7 +567,7 @@ function renderTree(lines) {
     if (!open) return head;
     const openBrace = Array.isArray(l.value) ? '[' : '{';
     const closeBrace = Array.isArray(l.value) ? ']' : '}';
-    return head + `<div class="tree-line-children-wrap">
+    return head + `<div class="tree-line-children-wrap" data-idx="${l.index}">
       <div class="tree-brace">${openBrace}</div>
       <div class="tree-children">${treeNode(l.value, lineKey)}</div>
       <div class="tree-brace">${closeBrace}</div>
@@ -595,7 +613,6 @@ async function openFile(filePath) {
     if (!filePath) return;
   }
   setFileInfo('Loading…');
-  els.openBtn.disabled = true;
   try {
     const data = await window.api.readFile(filePath, state.maxLines);
     state.filePath = data.path;
@@ -613,12 +630,11 @@ async function openFile(filePath) {
     els.search.value = '';
     els.sidebar.hidden = true;
     setFileInfo(`${data.name} · ${formatBytes(data.sizeBytes)} · ${data.totalLines} lines`);
+    addRecent(data.path);
     render();
     console.log(`[jsonl-viewer] loaded ${data.name}: ${data.parsedLines.length} parsed, ${data.errors.length} errors, ${data.totalLines} total`);
   } catch (err) {
     setFileInfo('Error: ' + err.message);
-  } finally {
-    els.openBtn.disabled = false;
   }
 }
 
@@ -656,6 +672,27 @@ async function saveFile() {
     showToast('Saved · ' + state.fileName);
   } catch (err) {
     showToast('Save failed: ' + (err && err.message ? err.message : 'error'), { kind: 'error' });
+  }
+}
+
+async function saveAsFile() {
+  if (!state.parsedLines.length) return;
+  const contents = state.parsedLines.map((l) => l.raw).join('\n') + '\n';
+  const defaultName = (state.fileName || 'output').replace(/\.(jsonl|ndjson|json|log|txt)$/i, '') + '.edited.jsonl';
+  let outPath;
+  try {
+    outPath = await window.api.saveFile(defaultName);
+  } catch (err) {
+    showToast('Save As failed: ' + (err && err.message ? err.message : 'error'), { kind: 'error' });
+    return;
+  }
+  if (!outPath) return; // cancelled
+  try {
+    await window.api.writeFile(outPath, contents);
+    const savedName = outPath.split(/[\\/]/).pop();
+    showToast('Saved · ' + savedName);
+  } catch (err) {
+    showToast('Save As failed: ' + (err && err.message ? err.message : 'error'), { kind: 'error' });
   }
 }
 
@@ -701,7 +738,6 @@ function collapseAllTree() {
 }
 
 // ---- Events ----
-els.openBtn.addEventListener('click', () => openFile(null));
 els.loadMoreBtn.addEventListener('click', loadMore);
 els.themeToggle.addEventListener('click', toggleTheme);
 els.editToggle.addEventListener('click', () => setEditMode(!state.editMode));
@@ -754,6 +790,7 @@ els.colToggle.addEventListener('click', (e) => {
     els.colPopover.hidden = false;
   }
 });
+
 // Close popover when clicking outside or pressing Escape
 document.addEventListener('click', (e) => {
   if (els.colPopover.hidden) return;
@@ -765,12 +802,6 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !els.colPopover.hidden) els.colPopover.hidden = true;
 });
 
-window.addEventListener('keydown', (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
-    e.preventDefault();
-    saveFile();
-  }
-});
 els.sidebarClose.addEventListener('click', () => {
   state.selectedIndex = null;
   els.viewPane.querySelectorAll('.selected').forEach((el) => el.classList.remove('selected'));
@@ -813,6 +844,86 @@ function scrollSelectedIntoView() {
   }
 }
 
+// ---- Copy / right-click context menu ----
+function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+  } else {
+    fallbackCopy(text);
+  }
+}
+
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); } catch (e) {}
+  document.body.removeChild(ta);
+}
+
+function hideCtx() {
+  els.ctxMenu.hidden = true;
+  els.ctxMenu.innerHTML = '';
+}
+
+function showCtx(x, y, items) {
+  els.ctxMenu.innerHTML = items.map((it) =>
+    `<button type="button" data-label="${escapeHtml(it.label)}">${escapeHtml(it.label)}</button>`
+  ).join('');
+  els.ctxMenu.hidden = false;
+  // Keep menu within viewport
+  const rect = els.ctxMenu.getBoundingClientRect();
+  const maxX = window.innerWidth - rect.width - 4;
+  const maxY = window.innerHeight - rect.height - 4;
+  els.ctxMenu.style.left = Math.min(x, maxX) + 'px';
+  els.ctxMenu.style.top = Math.min(y, maxY) + 'px';
+  els.ctxMenu.querySelectorAll('button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const label = btn.dataset.label;
+      const item = items.find((i) => i.label === label);
+      hideCtx();
+      if (item && item.onClick) item.onClick();
+    });
+  });
+}
+
+function showRowContextMenu(x, y, line) {
+  const items = [];
+  if (!line.parseError) {
+    items.push({ label: 'Copy JSON', onClick: () => copyText(JSON.stringify(line.value, null, 2)) });
+  }
+  items.push({ label: 'Copy raw', onClick: () => copyText((line.raw || '').replace(/\r?\n/g, '')) });
+  showCtx(x, y, items);
+}
+
+// Right-click on any row in any view
+els.viewPane.addEventListener('contextmenu', (e) => {
+  const row = e.target.closest('[data-idx]');
+  if (!row) return;
+  e.preventDefault();
+  const line = findLine(Number(row.dataset.idx));
+  if (!line) return;
+  showRowContextMenu(e.clientX, e.clientY, line);
+});
+
+// Right-click on the sidebar raw line text
+els.sidebarBody.addEventListener('contextmenu', (e) => {
+  const rawEl = e.target.closest('.sidebar-raw-text');
+  if (!rawEl) return;
+  e.preventDefault();
+  const text = (rawEl.textContent || '').replace(/\r?\n/g, '');
+  showCtx(e.clientX, e.clientY, [{ label: 'Copy raw', onClick: () => copyText(text) }]);
+});
+
+// Dismiss menu on click elsewhere, scroll, or Escape
+document.addEventListener('click', hideCtx);
+document.addEventListener('scroll', hideCtx, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideCtx(); });
+window.addEventListener('blur', hideCtx);
+
 // Drag & drop onto the window
 let dragCounter = 0;
 window.addEventListener('dragenter', (e) => {
@@ -844,6 +955,53 @@ if (window.api.onAutoOpen) {
   window.api.onAutoOpen((filePath) => openFile(filePath));
 }
 
+// ---- Native menu handlers ----
+if (window.api.onMenu) {
+  window.api.onMenu((action, arg) => {
+    switch (action) {
+      case 'open': openFile(null); break;
+      case 'open-file': openFile(arg); break;
+      case 'save': saveFile(); break;
+      case 'save-as': saveAsFile(); break;
+      case 'copy-json': copySelectedRow('json'); break;
+      case 'copy-raw': copySelectedRow('raw'); break;
+      case 'view': setView(arg); break;
+      case 'toggle-theme': toggleTheme(); break;
+      case 'clear-recent':
+        state.recent = [];
+        persistRecent();
+        showToast('Recent history cleared');
+        break;
+    }
+  });
+}
+
+function copySelectedRow(kind) {
+  if (state.selectedIndex === null) {
+    showToast('No row selected', { kind: 'error' });
+    return;
+  }
+  const l = findLine(state.selectedIndex);
+  if (!l) return;
+  if (kind === 'json') {
+    if (l.parseError) { showToast('Cannot copy JSON — parse error', { kind: 'error' }); return; }
+    copyText(JSON.stringify(l.value, null, 2));
+  } else {
+    copyText((l.raw || '').replace(/\r?\n/g, ''));
+  }
+  showToast('Copied');
+}
+
+function setView(v) {
+  if (v !== 'table' && v !== 'tree' && v !== 'raw') return;
+  state.view = v;
+  const radio = document.querySelector(`input[name="view"][value="${v}"]`);
+  if (radio) radio.checked = true;
+  render();
+  scrollSelectedIntoView();
+}
+
 // Initial render
+if (window.api && window.api.updateRecent) window.api.updateRecent(state.recent);
 render();
 console.log('[jsonl-viewer] renderer ready, view=' + state.view);
