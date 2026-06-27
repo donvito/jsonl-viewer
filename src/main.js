@@ -4,6 +4,8 @@ const fs = require('fs');
 
 let mainWindow;
 let recentFiles = [];
+let themeList = [];
+let currentTheme = 'dark';
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -11,7 +13,7 @@ function createWindow() {
     height: 820,
     minWidth: 720,
     minHeight: 480,
-    backgroundColor: '#1e1e2e',
+    backgroundColor: themeBackgroundColor(currentTheme),
     titleBarStyle: 'hiddenInset',
     show: false,
     webPreferences: {
@@ -43,6 +45,45 @@ function send(channel, ...args) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, ...args);
   }
+}
+
+// Background color matching each theme's --bg, used to set the BrowserWindow
+// background so the initial flash before the renderer loads matches the
+// persisted theme. Must stay in sync with themes.css.
+const THEME_BG = {
+  'dark': '#1e1e2e',
+  'light': '#eff1f5',
+  'tokyo-night': '#1a1b26',
+  'dracula': '#282a36',
+  'gruvbox-dark': '#282828',
+  'solarized-dark': '#002b36',
+  'solarized-light': '#fdf6e3',
+  'github-dark': '#0d1117',
+  'github-light': '#ffffff',
+  'one-dark': '#282c34'
+};
+
+function themeBackgroundColor(key) {
+  return THEME_BG[key] || THEME_BG['dark'];
+}
+
+function themeSubmenu() {
+  if (!themeList.length) {
+    return [{ label: 'No themes loaded', enabled: false }];
+  }
+  const dark = themeList.filter((t) => !t.isLight);
+  const light = themeList.filter((t) => t.isLight);
+  const toItem = (t) => ({
+    label: t.label,
+    type: 'radio',
+    checked: t.key === currentTheme,
+    click: () => send('menu:theme', t.key)
+  });
+  return [
+    ...dark.map(toItem),
+    { type: 'separator' },
+    ...light.map(toItem)
+  ];
 }
 
 function buildMenu() {
@@ -104,7 +145,8 @@ function buildMenu() {
         { label: 'Tree', click: () => send('menu:view', 'tree') },
         { label: 'Raw', click: () => send('menu:view', 'raw') },
         { type: 'separator' },
-        { label: 'Toggle Theme', click: () => send('menu:toggle-theme') }
+        { label: 'Theme', submenu: themeSubmenu() },
+        { label: 'Cycle Theme', accelerator: 'CmdOrCtrl+Shift+T', click: () => send('menu:cycle-theme') }
       ]
     },
     {
@@ -122,6 +164,27 @@ function buildMenu() {
 ipcMain.handle('recent:update', (_e, list) => {
   recentFiles = Array.isArray(list) ? list.filter((p) => typeof p === 'string') : [];
   buildMenu();
+  return true;
+});
+
+ipcMain.handle('theme:list', (_e, list) => {
+  themeList = Array.isArray(list)
+    ? list
+        .filter((t) => t && typeof t.key === 'string' && typeof t.label === 'string')
+        .map((t) => ({ key: t.key, label: t.label, isLight: !!t.isLight, accent: t.accent || null }))
+    : [];
+  buildMenu();
+  return true;
+});
+
+ipcMain.handle('theme:current', (_e, key) => {
+  if (typeof key === 'string') {
+    currentTheme = key;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setBackgroundColor(themeBackgroundColor(key));
+    }
+    buildMenu();
+  }
   return true;
 });
 

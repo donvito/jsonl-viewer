@@ -24,7 +24,9 @@ const $ = (sel) => document.querySelector(sel);
 
 const els = {
   loadMoreBtn: $('#loadMoreBtn'),
-  themeToggle: $('#themeToggle'),
+  themeBtn: $('#themeBtn'),
+  themeLabel: $('#themeLabel'),
+  themeMenu: $('#themeMenu'),
   editToggle: $('#editToggle'),
   saveBtn: $('#saveBtn'),
   fileInfo: $('#fileInfo'),
@@ -103,23 +105,104 @@ function addRecent(filePath) {
 }
 
 // ---- Theme ----
+// Single source of truth for the available themes. Each entry's `key`
+// matches a `:root[data-theme="<key>"]` block in themes.css; `accent` is
+// used to render the swatch preview in the picker; `isLight` groups the
+// picker menu into Dark / Light sections. The list is also forwarded to
+// the main process so the native menu's Theme submenu can mirror it.
+const THEMES = [
+  { key: 'dark',           label: 'Mocha',           accent: '#89b4fa', isLight: false },
+  { key: 'tokyo-night',    label: 'Tokyo Night',     accent: '#7aa2f7', isLight: false },
+  { key: 'dracula',        label: 'Dracula',         accent: '#bd93f9', isLight: false },
+  { key: 'gruvbox-dark',   label: 'Gruvbox Dark',    accent: '#83a598', isLight: false },
+  { key: 'solarized-dark', label: 'Solarized Dark',  accent: '#268bd2', isLight: false },
+  { key: 'github-dark',    label: 'GitHub Dark',     accent: '#58a6ff', isLight: false },
+  { key: 'one-dark',       label: 'One Dark',        accent: '#61afef', isLight: false },
+  { key: 'light',          label: 'Latte',           accent: '#1e66f5', isLight: true  },
+  { key: 'solarized-light',label: 'Solarized Light', accent: '#268bd2', isLight: true  },
+  { key: 'github-light',   label: 'GitHub Light',    accent: '#0969da', isLight: true  }
+];
+
+function themeMeta(key) {
+  return THEMES.find((t) => t.key === key) || THEMES[0];
+}
+
 function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  els.themeToggle.textContent = theme === 'light' ? '◑' : '◐';
-  els.themeToggle.title = (theme === 'light' ? 'Light' : 'Dark') + ' theme — click to toggle';
-  try { localStorage.setItem('jsonl-viewer:theme', theme); } catch (e) {}
+  const meta = themeMeta(theme);
+  document.documentElement.setAttribute('data-theme', meta.key);
+  els.themeLabel.textContent = meta.label;
+  els.themeBtn.title = `Theme: ${meta.label}`;
+  els.themeBtn.setAttribute('aria-label', `Theme: ${meta.label}`);
+  // Reflect the active theme in the open picker, if any
+  els.themeMenu.querySelectorAll('.theme-item').forEach((b) => {
+    b.classList.toggle('active', b.dataset.theme === meta.key);
+  });
+  try { localStorage.setItem('jsonl-viewer:theme', meta.key); } catch (e) {}
+  if (window.api && window.api.updateTheme) window.api.updateTheme(meta.key);
 }
 
 function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
-  applyTheme(current === 'light' ? 'dark' : 'light');
+  // Cycle through themes — handy for the View menu and keyboard users.
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const idx = THEMES.findIndex((t) => t.key === current);
+  const next = THEMES[(idx + 1) % THEMES.length];
+  applyTheme(next.key);
+}
+
+function setTheme(key) {
+  if (!THEMES.some((t) => t.key === key)) return;
+  applyTheme(key);
+}
+
+function renderThemeMenu() {
+  const sections = { dark: [], light: [] };
+  for (const t of THEMES) (t.isLight ? sections.light : sections.dark).push(t);
+  const renderSection = (title, items) => `
+    <div class="theme-section">${title}</div>
+    ${items.map((t) => `
+      <button type="button" class="theme-item" data-theme="${escapeHtml(t.key)}">
+        <span class="theme-swatch" style="background:${escapeHtml(t.accent)}"></span>
+        <span class="theme-name">${escapeHtml(t.label)}</span>
+        <span class="theme-check">✓</span>
+      </button>
+    `).join('')}
+  `;
+  els.themeMenu.innerHTML = renderSection('Dark', sections.dark) + renderSection('Light', sections.light);
+  els.themeMenu.querySelectorAll('.theme-item').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setTheme(btn.dataset.theme);
+      closeThemeMenu();
+    });
+  });
+  // Reflect currently applied theme
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  els.themeMenu.querySelectorAll('.theme-item').forEach((b) => {
+    b.classList.toggle('active', b.dataset.theme === current);
+  });
+}
+
+function openThemeMenu() {
+  renderThemeMenu();
+  els.themeMenu.hidden = false;
+  els.themeBtn.setAttribute('aria-expanded', 'true');
+}
+
+function closeThemeMenu() {
+  els.themeMenu.hidden = true;
+  els.themeBtn.setAttribute('aria-expanded', 'false');
+}
+
+function toggleThemeMenu() {
+  if (els.themeMenu.hidden) openThemeMenu(); else closeThemeMenu();
 }
 
 (function initTheme() {
   let theme;
   try { theme = localStorage.getItem('jsonl-viewer:theme'); } catch (e) {}
-  if (theme !== 'light' && theme !== 'dark') theme = 'dark';
+  if (!THEMES.some((t) => t.key === theme)) theme = 'dark';
   applyTheme(theme);
+  if (window.api && window.api.setThemeList) window.api.setThemeList(THEMES);
 })();
 
 // ---- Helpers ----
@@ -739,11 +822,25 @@ function collapseAllTree() {
 
 // ---- Events ----
 els.loadMoreBtn.addEventListener('click', loadMore);
-els.themeToggle.addEventListener('click', toggleTheme);
+els.themeBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleThemeMenu();
+});
 els.editToggle.addEventListener('click', () => setEditMode(!state.editMode));
 els.saveBtn.addEventListener('click', saveFile);
 els.treeExpandAll.addEventListener('click', expandAllTree);
 els.treeCollapseAll.addEventListener('click', collapseAllTree);
+
+// Close the theme menu when clicking outside it or pressing Escape
+document.addEventListener('click', (e) => {
+  if (els.themeMenu.hidden) return;
+  if (!els.themeMenu.contains(e.target) && e.target !== els.themeBtn && !els.themeBtn.contains(e.target)) {
+    closeThemeMenu();
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !els.themeMenu.hidden) closeThemeMenu();
+});
 
 // ---- Column visibility popover ----
 function renderColPopover() {
@@ -966,7 +1063,8 @@ if (window.api.onMenu) {
       case 'copy-json': copySelectedRow('json'); break;
       case 'copy-raw': copySelectedRow('raw'); break;
       case 'view': setView(arg); break;
-      case 'toggle-theme': toggleTheme(); break;
+      case 'theme': setTheme(arg); break;
+      case 'cycle-theme': toggleTheme(); break;
       case 'clear-recent':
         state.recent = [];
         persistRecent();

@@ -5,6 +5,7 @@
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
   <title>JSONL Viewer</title>
+  <link rel="stylesheet" href="themes.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -16,7 +17,14 @@
       </div>
       <div class="toolbar-actions">
         <button id="loadMoreBtn" class="btn" disabled>Load more</button>
-        <button id="themeToggle" class="theme-toggle" title="Toggle theme" aria-label="Toggle theme">◐</button>
+        <div class="theme-picker">
+          <button id="themeBtn" class="theme-btn" title="Choose theme" aria-haspopup="true" aria-expanded="false">
+            <span class="theme-swatch"></span>
+            <span id="themeLabel">Theme</span>
+            <span class="theme-caret">▾</span>
+          </button>
+          <div id="themeMenu" class="theme-menu" hidden></div>
+        </div>
       </div>
       <div class="file-info" id="fileInfo">No file loaded</div>
     </header>

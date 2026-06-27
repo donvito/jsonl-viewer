@@ -1,42 +1,6 @@
-:root {
-  --bg: #1e1e2e;
-  --bg-soft: #181825;
-  --bg-elev: #313244;
-  --bg-row-alt: #23233200;
-  --border: #45475a;
-  --text: #cdd6f4;
-  --text-dim: #a6adc8;
-  --text-faint: #6c7086;
-  --accent: #89b4fa;
-  --accent-2: #f5c2e7;
-  --green: #a6e3a1;
-  --yellow: #f9e2af;
-  --red: #f38ba8;
-  --orange: #fab387;
-  --btn-hover: #45475a;
-  --row-hover: rgba(137, 180, 250, 0.06);
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-}
-
-:root[data-theme="light"] {
-  --bg: #eff1f5;
-  --bg-soft: #e6e9ef;
-  --bg-elev: #dce0e8;
-  --bg-row-alt: #00000000;
-  --border: #bcc0cc;
-  --text: #4c4f69;
-  --text-dim: #6c6f85;
-  --text-faint: #9ca0b0;
-  --accent: #1e66f5;
-  --accent-2: #ea76cb;
-  --green: #40a02b;
-  --yellow: #df8e1d;
-  --red: #d20f39;
-  --orange: #fe640b;
-  --btn-hover: #ccd0e0;
-  --row-hover: rgba(30, 102, 245, 0.07);
-}
+/* Theme palettes (background, text, accent, JSON-highlight colors, etc.)
+   live in themes.css and are switched via the data-theme attribute on
+   <html>. styles.css only consumes the variables defined there. */
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -101,30 +65,89 @@ html, body {
 .btn.hidden-slot { visibility: hidden; }
 .btn.primary {
   background: var(--accent);
-  color: #11111b;
+  color: var(--primary-fg);
   border-color: var(--accent);
   font-weight: 600;
 }
-.btn.primary:hover { background: #b4d0fb; }
-:root[data-theme="light"] .btn.primary { background: var(--accent); color: #eff1f5; }
-:root[data-theme="light"] .btn.primary:hover { background: #4c81f7; }
+.btn.primary:hover { background: var(--primary-hover); }
 
-.theme-toggle {
+/* Theme picker dropdown in the toolbar */
+.theme-picker { position: relative; -webkit-app-region: no-drag; }
+.theme-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 30px;
+  gap: 6px;
   height: 28px;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 6px;
-  color: var(--text-dim);
+  color: var(--text);
   cursor: pointer;
-  font-size: 14px;
-  padding: 0;
+  font-size: 12px;
+  padding: 0 10px;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
-.theme-toggle:hover { background: var(--btn-hover); color: var(--accent); }
+.theme-btn:hover { background: var(--btn-hover); color: var(--accent); border-color: var(--accent); }
+.theme-btn .theme-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--accent);
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
+  flex: 0 0 auto;
+}
+.theme-btn .theme-caret { color: var(--text-faint); font-size: 10px; margin-left: 2px; }
+.theme-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 200px;
+  max-height: 380px;
+  overflow: auto;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  padding: 6px;
+  z-index: 60;
+  font-size: 12px;
+  font-family: var(--sans);
+}
+.theme-menu .theme-section {
+  color: var(--text-faint);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 6px 8px 4px;
+  -webkit-user-select: none;
+}
+.theme-menu button.theme-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--sans);
+}
+.theme-menu button.theme-item:hover { background: var(--btn-hover); color: var(--accent); }
+.theme-menu button.theme-item.active { color: var(--accent); }
+.theme-menu .theme-item .theme-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+.theme-menu .theme-item .theme-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.theme-menu .theme-item .theme-check { color: var(--accent); font-size: 12px; visibility: hidden; }
+.theme-menu .theme-item.active .theme-check { visibility: visible; }
 
 .file-info {
   margin-left: auto;
@@ -216,7 +239,7 @@ html, body {
 .drop-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(137, 180, 250, 0.12);
+  background: var(--drop-overlay-bg);
   border: 3px dashed var(--accent);
   display: flex;
   align-items: center;
@@ -688,12 +711,9 @@ table.jsonl tr.error td .err-badge {
 .ctx-menu button:hover { background: var(--btn-hover); color: var(--accent); }
 
 /* Selected row highlight */
-table.jsonl tr.selected td { background: rgba(137, 180, 250, 0.16) !important; }
-:root[data-theme="light"] table.jsonl tr.selected td { background: rgba(30, 102, 245, 0.14) !important; }
-.raw-row.selected { background: rgba(137, 180, 250, 0.16); }
-:root[data-theme="light"] .raw-row.selected { background: rgba(30, 102, 245, 0.14); }
-.tree-line.selected { background: rgba(137, 180, 250, 0.16); }
-:root[data-theme="light"] .tree-line.selected { background: rgba(30, 102, 245, 0.14); }
+table.jsonl tr.selected td { background: var(--selected) !important; }
+.raw-row.selected { background: var(--selected); }
+.tree-line.selected { background: var(--selected); }
 table.jsonl tr, .raw-row, .tree-line { cursor: pointer; }
 
 /* Edit mode */
@@ -706,8 +726,7 @@ body.edit-mode table.jsonl td.cell-editable:focus-within {
 .cell-editable[contenteditable="true"] { outline: none; }
 body.edit-mode .edit-hint { display: inline; }
 .edit-hint { display: none; color: var(--text-faint); font-size: 11px; margin-left: 8px; }
-#editToggle.active { background: var(--green); color: #11111b; border-color: var(--green); font-weight: 600; }
-:root[data-theme="light"] #editToggle.active { color: #eff1f5; }
+#editToggle.active { background: var(--green); color: var(--primary-fg); border-color: var(--green); font-weight: 600; }
 .raw-edit {
   width: 100%;
   min-height: 22px;
