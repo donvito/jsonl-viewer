@@ -1,0 +1,16 @@
+{
+  "name": "jsonl-viewer",
+  "version": "1.0.0",
+  "description": "A desktop Electron app for viewing and inspecting JSONL files",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "keywords": ["jsonl", "viewer", "electron", "json"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^31.0.0"
+  }
+}

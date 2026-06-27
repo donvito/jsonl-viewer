@@ -1,0 +1,11 @@
+{"id":1,"type":"log","level":"info","msg":"Server started","ts":"2026-06-27T11:00:00Z","meta":{"port":8080,"host":"0.0.0.0"}}
+{"id":2,"type":"request","method":"GET","path":"/api/users","status":200,"duration_ms":12,"user":{"id":42,"name":"Alice","roles":["admin","editor"]}}
+{"id":3,"type":"request","method":"POST","path":"/api/orders","status":201,"duration_ms":87,"items":[{"sku":"A-100","qty":2,"price":9.99},{"sku":"B-200","qty":1,"price":19.5}]}
+{"id":4,"type":"log","level":"warn","msg":"Slow query detected","ts":"2026-06-27T11:01:30Z","query":"SELECT * FROM orders","duration_ms":1234}
+{"id":5,"type":"error","level":"error","msg":"Database connection failed","ts":"2026-06-27T11:02:10Z","error":{"code":"ECONNREFUSED","retry":false,"details":null}}
+{"id":6,"type":"metric","name":"cpu","value":0.42,"unit":"ratio","tags":["prod","us-east-1"]}
+{"id":7,"type":"metric","name":"memory","value":73.5,"unit":"percent","tags":["prod","us-east-1"]}
+{"id":8,"type":"request","method":"GET","path":"/api/health","status":200,"duration_ms":3,"user":null}
+this is not valid json on purpose
+{"id":10,"type":"event","event":"user.signup","ts":"2026-06-27T11:05:00Z","payload":{"userId":99,"plan":"pro","trial":true,"referral":null}}
+{"id":11,"type":"event","event":"user.upgraded","ts":"2026-06-27T11:06:00Z","payload":{"userId":99,"plan":"pro","trial":false,"amount":49.99}}

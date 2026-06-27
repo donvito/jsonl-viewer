@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>JSONL Viewer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="toolbar">
+      <div class="brand">
+        <span class="logo">{ }</span>
+        <span class="title">JSONL Viewer</span>
+      </div>
+      <div class="toolbar-actions">
+        <button id="openBtn" class="btn primary">Open File</button>
+        <button id="loadMoreBtn" class="btn" disabled>Load more</button>
+        <button id="themeToggle" class="theme-toggle" title="Toggle theme" aria-label="Toggle theme">◐</button>
+      </div>
+      <div class="file-info" id="fileInfo">No file loaded</div>
+    </header>
+
+    <section class="controls" id="controls" hidden>
+      <div class="search-wrap">
+        <input id="search" type="search" placeholder="Filter rows by text (searches raw JSON)…" />
+      </div>
+      <div class="view-toggle">
+        <label><input type="radio" name="view" value="table" checked /> Table</label>
+        <label><input type="radio" name="view" value="tree" /> Tree</label>
+        <label><input type="radio" name="view" value="raw" /> Raw</label>
+      </div>
+      <div class="col-picker">
+        <button id="colToggle" class="btn" hidden>Columns</button>
+        <div id="colPopover" class="col-popover" hidden></div>
+      </div>
+      <button id="treeExpandAll" class="btn" hidden>Expand all</button>
+      <button id="treeCollapseAll" class="btn" hidden>Collapse all</button>
+      <button id="editToggle" class="btn" title="Toggle cell editing">Edit: off</button>
+      <button id="saveBtn" class="btn hidden-slot">Save</button>
+      <div class="stat" id="stat"></div>
+    </section>
+
+    <main class="content" id="content">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon">{ }</div>
+        <h2>Open a JSONL file to begin</h2>
+        <p>Drag a <code>.jsonl</code> / <code>.ndjson</code> file onto this window, or click <strong>Open File</strong>.</p>
+        <p class="hint">Each line is parsed as a separate JSON object.</p>
+      </div>
+      <div id="viewPane" class="view-pane"></div>
+      <aside id="sidebar" class="sidebar" hidden>
+        <div class="sidebar-header">
+          <span id="sidebarTitle" class="sidebar-title">Row</span>
+          <button id="sidebarRawToggle" class="sidebar-icon-btn sidebar-raw-toggle" title="Toggle raw line">raw</button>
+          <button id="sidebarCopy" class="sidebar-icon-btn" title="Copy JSON">⧉</button>
+          <button id="sidebarClose" class="sidebar-icon-btn" title="Close">✕</button>
+        </div>
+        <div id="sidebarBody" class="sidebar-body"></div>
+      </aside>
+      <div id="dropOverlay" class="drop-overlay" hidden>Drop file to open</div>
+    </main>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
