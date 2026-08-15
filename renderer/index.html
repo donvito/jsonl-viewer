@@ -16,6 +16,7 @@
         <span class="title">JSONL Viewer</span>
       </div>
       <div class="toolbar-actions">
+        <button id="explorerToggle" class="btn" title="Toggle file explorer">Files</button>
         <button id="loadMoreBtn" class="btn" disabled>Load more</button>
         <div class="theme-picker">
           <button id="themeBtn" class="theme-btn" title="Choose theme" aria-haspopup="true" aria-expanded="false">
@@ -29,6 +30,28 @@
       <div class="file-info" id="fileInfo">No file loaded</div>
     </header>
 
+    <div id="workspace" class="workspace">
+    <aside id="explorer" class="explorer">
+      <div class="explorer-header">
+        <span class="explorer-title">Explorer</span>
+        <button id="explorerOpenFile" class="explorer-icon-btn" title="Open File">File</button>
+        <button id="explorerOpenFolder" class="explorer-icon-btn" title="Open Folder">Folder</button>
+        <button id="explorerHide" class="explorer-icon-btn" title="Hide explorer">‹</button>
+      </div>
+      <div id="explorerOpenSection" class="explorer-section" hidden>
+        <div class="explorer-section-label">Open files</div>
+        <div id="explorerOpenList" class="explorer-list"></div>
+      </div>
+      <div class="explorer-section explorer-tree-section">
+        <div class="explorer-section-head">
+          <div id="explorerFolderLabel" class="explorer-section-label">No folder</div>
+          <button id="explorerRefresh" class="explorer-icon-btn" title="Refresh folder" hidden>↻</button>
+        </div>
+        <div id="explorerTree" class="explorer-tree"></div>
+      </div>
+      <div id="explorerResizer" class="explorer-resizer"></div>
+    </aside>
+    <div class="main-col">
     <section class="controls" id="controls" hidden>
       <div class="search-wrap">
         <input id="search" type="search" placeholder="Filter rows by text (searches raw JSON)…" />
@@ -53,7 +76,11 @@
       <div class="empty-state" id="emptyState">
         <div class="empty-icon">{ }</div>
         <h2>Open a JSONL file to begin</h2>
-        <p>Drag a <code>.jsonl</code> / <code>.ndjson</code> file onto this window, or click <strong>Open File</strong>.</p>
+        <p>Browse the explorer, drag a file onto this window, or use the buttons below.</p>
+        <div class="empty-actions">
+          <button id="emptyOpenFile" class="btn">Open File</button>
+          <button id="emptyOpenFolder" class="btn primary">Open Folder</button>
+        </div>
         <p class="hint">Each line is parsed as a separate JSON object.</p>
       </div>
       <div id="viewPane" class="view-pane"></div>
@@ -68,6 +95,8 @@
       </aside>
       <div id="dropOverlay" class="drop-overlay" hidden>Drop file to open</div>
     </main>
+    </div>
+    </div>
   </div>
 
   <div id="ctxMenu" class="ctx-menu" hidden></div>

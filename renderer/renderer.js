@@ -20,9 +20,35 @@ const state = {
   recent: []
 };
 
+const explorer = {
+  visible: true,
+  width: 248,
+  folder: null,
+  folderName: '',
+  children: {},
+  expanded: new Set(),
+  openFiles: [],
+  sessions: {},
+  activePath: null
+};
+
 const $ = (sel) => document.querySelector(sel);
 
 const els = {
+  workspace: $('#workspace'),
+  explorer: $('#explorer'),
+  explorerToggle: $('#explorerToggle'),
+  explorerOpenFile: $('#explorerOpenFile'),
+  explorerOpenFolder: $('#explorerOpenFolder'),
+  explorerHide: $('#explorerHide'),
+  explorerRefresh: $('#explorerRefresh'),
+  explorerOpenSection: $('#explorerOpenSection'),
+  explorerOpenList: $('#explorerOpenList'),
+  explorerFolderLabel: $('#explorerFolderLabel'),
+  explorerTree: $('#explorerTree'),
+  explorerResizer: $('#explorerResizer'),
+  emptyOpenFile: $('#emptyOpenFile'),
+  emptyOpenFolder: $('#emptyOpenFolder'),
   loadMoreBtn: $('#loadMoreBtn'),
   themeBtn: $('#themeBtn'),
   themeLabel: $('#themeLabel'),
@@ -102,6 +128,42 @@ function addRecent(filePath) {
   if (!filePath) return;
   state.recent = [filePath, ...state.recent.filter((p) => p !== filePath)].slice(0, 10);
   persistRecent();
+}
+
+function samePath(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return String(a).replace(/\\/g, '/').toLowerCase() === String(b).replace(/\\/g, '/').toLowerCase();
+}
+
+function fileName(p) {
+  return String(p || '').split(/[\\/]/).pop() || String(p || '');
+}
+
+function parentDir(p) {
+  const s = String(p || '');
+  const i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+  if (i <= 0) return s;
+  if (s[i - 1] === ':') return s.slice(0, i + 1);
+  return s.slice(0, i);
+}
+
+function findOpen(filePath) {
+  return explorer.openFiles.find((f) => samePath(f.path, filePath)) || null;
+}
+
+function sessionKey(filePath) {
+  const hit = findOpen(filePath);
+  return hit ? hit.path : filePath;
+}
+
+function markDirty(on = true) {
+  if (!state.filePath) return;
+  const entry = findOpen(state.filePath);
+  if (entry && entry.dirty !== on) {
+    entry.dirty = on;
+    renderExplorer();
+  }
 }
 
 // ---- Theme ----
@@ -358,6 +420,7 @@ function renderSidebar() {
       }
       if (rawEl) rawEl.textContent = l.raw;
       els.sidebarTitle.textContent = `Row ${l.index + 1}${l.parseError ? ' · parse error' : ''}`;
+      markDirty(true);
     };
     ta.addEventListener('input', update);
     ta.addEventListener('blur', () => render());
@@ -398,6 +461,7 @@ function commitCellEdit(line, key, text) {
   line.raw = JSON.stringify(line.value);
   line.parseError = null;
   state.errors = state.errors.filter((e) => e.index !== line.index);
+  markDirty(true);
 }
 
 function keys_count(line) {
@@ -572,6 +636,7 @@ function renderRaw(lines) {
           line.raw = ta.value;
           ta.classList.add('invalid');
         }
+        markDirty(true);
       });
       ta.addEventListener('blur', () => render());
     });
@@ -690,34 +755,253 @@ function setFileInfo(text) {
 }
 
 // ---- Actions ----
+function applyLoadedData(data, { preserveView = false } = {}) {
+  const prevSelected = state.selectedIndex;
+  const prevExpanded = state.expanded;
+  const prevTreeExpanded = state.treeExpanded;
+
+  state.filePath = data.path;
+  state.fileName = data.name;
+  state.totalLines = data.totalLines;
+  state.sizeBytes = data.sizeBytes;
+  state.parsedLines = data.parsedLines;
+  state.errors = data.errors;
+  state.truncated = data.truncated;
+
+  if (!preserveView) {
+    state.expanded = new Set();
+    state.treeExpanded = new Set();
+    state.selectedIndex = null;
+    state.filter = '';
+    els.search.value = '';
+    els.sidebar.hidden = true;
+  } else {
+    const validIndexes = new Set(data.parsedLines.map((l) => l.index));
+    if (prevSelected != null && !validIndexes.has(prevSelected)) {
+      state.selectedIndex = null;
+    }
+    state.expanded = new Set([...prevExpanded].filter((i) => validIndexes.has(i)));
+    state.treeExpanded = new Set([...prevTreeExpanded].filter((p) => {
+      const root = Number(String(p).split('>')[0]);
+      return validIndexes.has(root);
+    }));
+  }
+
+  recomputeAllKeys();
+  setFileInfo(`${data.name} · ${formatBytes(data.sizeBytes)} · ${data.totalLines} lines`);
+  addRecent(data.path);
+  ensureOpenFile(data.path, data.name);
+  explorer.activePath = data.path;
+  markDirty(false);
+  render();
+  renderExplorer();
+}
+
+function saveCurrentSession() {
+  if (!state.filePath) return;
+  const key = sessionKey(state.filePath);
+  explorer.sessions[key] = {
+    filePath: state.filePath,
+    fileName: state.fileName,
+    totalLines: state.totalLines,
+    sizeBytes: state.sizeBytes,
+    parsedLines: state.parsedLines,
+    errors: state.errors,
+    truncated: state.truncated,
+    view: state.view,
+    filter: state.filter,
+    expanded: new Set(state.expanded),
+    treeExpanded: new Set(state.treeExpanded),
+    selectedIndex: state.selectedIndex,
+    editMode: state.editMode,
+    showSidebarRaw: state.showSidebarRaw,
+    allKeys: state.allKeys.slice(),
+    scrollTop: els.viewPane.scrollTop,
+    scrollLeft: els.viewPane.scrollLeft
+  };
+}
+
+function restoreSession(sess) {
+  state.filePath = sess.filePath;
+  state.fileName = sess.fileName;
+  state.totalLines = sess.totalLines;
+  state.sizeBytes = sess.sizeBytes;
+  state.parsedLines = sess.parsedLines;
+  state.errors = sess.errors;
+  state.truncated = sess.truncated;
+  state.view = sess.view;
+  state.filter = sess.filter;
+  state.expanded = new Set(sess.expanded);
+  state.treeExpanded = new Set(sess.treeExpanded);
+  state.selectedIndex = sess.selectedIndex;
+  state.showSidebarRaw = sess.showSidebarRaw;
+  state.allKeys = sess.allKeys.slice();
+  state.editMode = !!sess.editMode;
+  document.body.classList.toggle('edit-mode', state.editMode);
+  els.editToggle.textContent = 'Edit: ' + (state.editMode ? 'on' : 'off');
+  els.editToggle.classList.toggle('active', state.editMode);
+  els.search.value = sess.filter || '';
+  const radio = document.querySelector(`input[name="view"][value="${sess.view}"]`);
+  if (radio) radio.checked = true;
+  explorer.activePath = sess.filePath;
+  setFileInfo(`${sess.fileName} · ${formatBytes(sess.sizeBytes)} · ${sess.totalLines} lines`);
+  render();
+  els.viewPane.scrollTop = sess.scrollTop || 0;
+  els.viewPane.scrollLeft = sess.scrollLeft || 0;
+}
+
+function ensureOpenFile(filePath, name) {
+  if (!filePath) return;
+  const existing = findOpen(filePath);
+  if (existing) return existing;
+  const entry = { path: filePath, name: name || fileName(filePath), dirty: false };
+  explorer.openFiles.push(entry);
+  return entry;
+}
+
+function clearActiveFile() {
+  state.filePath = null;
+  state.fileName = null;
+  state.totalLines = 0;
+  state.sizeBytes = 0;
+  state.parsedLines = [];
+  state.errors = [];
+  state.truncated = false;
+  state.expanded = new Set();
+  state.treeExpanded = new Set();
+  state.selectedIndex = null;
+  state.filter = '';
+  state.editMode = false;
+  explorer.activePath = null;
+  document.body.classList.remove('edit-mode');
+  els.editToggle.textContent = 'Edit: off';
+  els.editToggle.classList.remove('active');
+  if (els.search) els.search.value = '';
+  if (window.api.watchFile) window.api.watchFile(null);
+  setFileInfo('No file loaded');
+  render();
+}
+
+function joinPath(dir, name) {
+  if (!dir) return name;
+  const sep = /\\/.test(dir) && !dir.includes('/') ? '\\' : '/';
+  if (/[\\/]$/.test(dir)) return dir + name;
+  return dir + sep + name;
+}
+
+async function revealInExplorer(filePath) {
+  if (!explorer.folder || !filePath) return;
+  const folderN = explorer.folder.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
+  const fileN = filePath.replace(/\\/g, '/').toLowerCase();
+  if (fileN !== folderN && !fileN.startsWith(folderN + '/')) return;
+  const rel = filePath.replace(/\\/g, '/').slice(explorer.folder.replace(/\\/g, '/').length).replace(/^\//, '');
+  const parts = rel.split('/').filter(Boolean);
+  parts.pop();
+  let acc = explorer.folder;
+  for (const part of parts) {
+    acc = joinPath(acc, part);
+    explorer.expanded.add(acc);
+    if (!explorer.children[acc]) {
+      try { await loadDir(acc); } catch (e) {}
+    }
+  }
+}
+
+async function loadFileFromDisk(filePath) {
+  setFileInfo('Loading…');
+  const data = await window.api.readFile(filePath, state.maxLines);
+  applyLoadedData(data, { preserveView: false });
+  if (!explorer.folder) {
+    await openExplorerFolder(parentDir(data.path), { persist: true });
+  } else {
+    await revealInExplorer(data.path);
+    renderExplorer();
+  }
+  return data;
+}
+
 async function openFile(filePath) {
   if (!filePath) {
     filePath = await window.api.openFile();
     if (!filePath) return;
   }
-  setFileInfo('Loading…');
+  if (state.filePath && samePath(state.filePath, filePath)) {
+    renderExplorer();
+    return;
+  }
+  saveCurrentSession();
+  const existing = findOpen(filePath);
+  const cached = existing && explorer.sessions[existing.path];
+  if (cached) {
+    restoreSession(cached);
+    if (window.api.watchFile) window.api.watchFile(existing.path);
+    renderExplorer();
+    if (!existing.dirty) {
+      try { await reloadFile({ ignoreEdit: true }); } catch (e) {}
+    }
+    return;
+  }
   try {
-    const data = await window.api.readFile(filePath, state.maxLines);
-    state.filePath = data.path;
-    state.fileName = data.name;
-    state.totalLines = data.totalLines;
-    state.sizeBytes = data.sizeBytes;
-    state.parsedLines = data.parsedLines;
-    state.errors = data.errors;
-    state.truncated = data.truncated;
-    state.expanded = new Set();
-    state.treeExpanded = new Set();
-    state.selectedIndex = null;
-    state.filter = '';
-    recomputeAllKeys();
-    els.search.value = '';
-    els.sidebar.hidden = true;
-    setFileInfo(`${data.name} · ${formatBytes(data.sizeBytes)} · ${data.totalLines} lines`);
-    addRecent(data.path);
-    render();
+    const data = await loadFileFromDisk(filePath);
     console.log(`[jsonl-viewer] loaded ${data.name}: ${data.parsedLines.length} parsed, ${data.errors.length} errors, ${data.totalLines} total`);
   } catch (err) {
     setFileInfo('Error: ' + err.message);
+  }
+}
+
+async function closeFile(filePath) {
+  const entry = findOpen(filePath);
+  if (!entry) return;
+  if (entry.dirty && !window.confirm('Discard unsaved changes to ' + entry.name + '?')) return;
+  explorer.openFiles = explorer.openFiles.filter((f) => !samePath(f.path, filePath));
+  delete explorer.sessions[entry.path];
+  if (state.filePath && samePath(state.filePath, filePath)) {
+    state.filePath = null;
+    const next = explorer.openFiles[explorer.openFiles.length - 1];
+    if (next) await openFile(next.path);
+    else clearActiveFile();
+  }
+  renderExplorer();
+}
+
+let reloadInFlight = false;
+let reloadQueued = false;
+let pendingExternalChange = false;
+let editModeReloadWarned = false;
+
+async function reloadFile({ ignoreEdit = false } = {}) {
+  if (!state.filePath) return;
+  if (state.editMode && !ignoreEdit) {
+    pendingExternalChange = true;
+    if (!editModeReloadWarned) {
+      editModeReloadWarned = true;
+      showToast('File changed on disk — turn Edit off to reload');
+    }
+    return;
+  }
+  if (reloadInFlight) {
+    reloadQueued = true;
+    return;
+  }
+  reloadInFlight = true;
+  pendingExternalChange = false;
+  const scrollTop = els.viewPane.scrollTop;
+  const scrollLeft = els.viewPane.scrollLeft;
+  try {
+    const maxLines = Math.max(state.maxLines, state.parsedLines.length);
+    const data = await window.api.readFile(state.filePath, maxLines);
+    applyLoadedData(data, { preserveView: true });
+    els.viewPane.scrollTop = scrollTop;
+    els.viewPane.scrollLeft = scrollLeft;
+    console.log(`[jsonl-viewer] reloaded ${data.name}: ${data.parsedLines.length} parsed, ${data.errors.length} errors, ${data.totalLines} total`);
+  } catch (err) {
+    showToast('Reload failed: ' + (err && err.message ? err.message : 'error'), { kind: 'error' });
+  } finally {
+    reloadInFlight = false;
+    if (reloadQueued) {
+      reloadQueued = false;
+      reloadFile();
+    }
   }
 }
 
@@ -741,6 +1025,10 @@ function setEditMode(on) {
   els.editToggle.title = on ? 'Editing enabled — click cells (Table) or textareas (Raw) to edit' : 'Toggle cell editing';
   els.saveBtn.classList.toggle('hidden-slot', !on || !state.filePath);
   render();
+  if (!on) {
+    editModeReloadWarned = false;
+    if (pendingExternalChange) reloadFile();
+  }
 }
 
 async function saveFile() {
@@ -752,6 +1040,7 @@ async function saveFile() {
   const contents = state.parsedLines.map((l) => l.raw).join('\n') + '\n';
   try {
     await window.api.writeFile(state.filePath, contents);
+    markDirty(false);
     showToast('Saved · ' + state.fileName);
   } catch (err) {
     showToast('Save failed: ' + (err && err.message ? err.message : 'error'), { kind: 'error' });
@@ -819,6 +1108,266 @@ function collapseAllTree() {
   state.treeExpanded = new Set();
   render();
 }
+
+// ---- File explorer ----
+function persistExplorerPrefs() {
+  try {
+    localStorage.setItem('jsonl-viewer:explorer', explorer.visible ? '1' : '0');
+    localStorage.setItem('jsonl-viewer:explorerWidth', String(explorer.width));
+    if (explorer.folder) localStorage.setItem('jsonl-viewer:folder', explorer.folder);
+  } catch (e) {}
+}
+
+function applyExplorerWidth() {
+  if (!els.explorer) return;
+  els.explorer.style.flexBasis = explorer.width + 'px';
+  els.explorer.style.width = explorer.width + 'px';
+}
+
+function setExplorerVisible(on, { persist = true } = {}) {
+  explorer.visible = !!on;
+  if (els.workspace) els.workspace.classList.toggle('explorer-hidden', !explorer.visible);
+  if (els.explorerToggle) els.explorerToggle.classList.toggle('active', explorer.visible);
+  if (persist) persistExplorerPrefs();
+}
+
+function toggleExplorer() {
+  setExplorerVisible(!explorer.visible);
+}
+
+async function loadDir(dirPath) {
+  if (!window.api.listDir) return [];
+  const data = await window.api.listDir(dirPath);
+  explorer.children[dirPath] = data.entries || [];
+  return data;
+}
+
+async function openExplorerFolder(dirPath, { persist = true } = {}) {
+  if (!dirPath) {
+    if (!window.api.openFolder) return;
+    dirPath = await window.api.openFolder();
+    if (!dirPath) return;
+  }
+  explorer.folder = dirPath;
+  explorer.folderName = fileName(dirPath) || dirPath;
+  explorer.expanded = new Set([dirPath]);
+  explorer.children = {};
+  try {
+    await loadDir(dirPath);
+  } catch (e) {}
+  if (persist) persistExplorerPrefs();
+  if (!explorer.visible) setExplorerVisible(true);
+  renderExplorer();
+}
+
+async function refreshExplorerFolder() {
+  if (!explorer.folder) return;
+  const keep = new Set(explorer.expanded);
+  explorer.children = {};
+  await loadDir(explorer.folder);
+  for (const dir of keep) {
+    if (dir !== explorer.folder) {
+      try { await loadDir(dir); } catch (e) {}
+    }
+  }
+  explorer.expanded = keep;
+  renderExplorer();
+}
+
+async function toggleExplorerDir(dirPath) {
+  if (explorer.expanded.has(dirPath)) {
+    explorer.expanded.delete(dirPath);
+  } else {
+    explorer.expanded.add(dirPath);
+    if (!explorer.children[dirPath]) {
+      try { await loadDir(dirPath); } catch (e) {}
+    }
+  }
+  renderExplorer();
+}
+
+function renderExplorer() {
+  if (!els.explorerTree) return;
+  if (els.explorerFolderLabel) {
+    els.explorerFolderLabel.textContent = explorer.folder ? explorer.folderName : 'No folder';
+    els.explorerFolderLabel.title = explorer.folder || '';
+  }
+  if (els.explorerRefresh) els.explorerRefresh.hidden = !explorer.folder;
+
+  if (els.explorerOpenSection && els.explorerOpenList) {
+    els.explorerOpenSection.hidden = explorer.openFiles.length === 0;
+    els.explorerOpenList.innerHTML = '';
+    for (const f of explorer.openFiles) {
+      const row = document.createElement('div');
+      row.className = 'ex-row ex-file' + (samePath(f.path, explorer.activePath) ? ' active' : '');
+      row.dataset.path = f.path;
+      row.title = f.path;
+      const ph = document.createElement('span');
+      ph.className = 'ex-caret-ph';
+      row.appendChild(ph);
+      const name = document.createElement('span');
+      name.className = 'ex-name';
+      name.textContent = f.name;
+      row.appendChild(name);
+      if (f.dirty) {
+        const dot = document.createElement('span');
+        dot.className = 'ex-dirty';
+        dot.title = 'Unsaved changes';
+        row.appendChild(dot);
+      }
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'ex-close';
+      close.title = 'Close';
+      close.textContent = '×';
+      close.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeFile(f.path);
+      });
+      row.appendChild(close);
+      row.addEventListener('click', () => openFile(f.path));
+      row.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        showExplorerFileMenu(e.clientX, e.clientY, f.path, f.name, true);
+      });
+      els.explorerOpenList.appendChild(row);
+    }
+  }
+
+  els.explorerTree.innerHTML = '';
+  if (!explorer.folder) {
+    const empty = document.createElement('div');
+    empty.className = 'explorer-empty';
+    empty.appendChild(document.createTextNode('Open a folder to browse .jsonl / .ndjson files.'));
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn';
+    btn.textContent = 'Open Folder';
+    btn.addEventListener('click', () => openExplorerFolder(null));
+    empty.appendChild(document.createElement('br'));
+    empty.appendChild(btn);
+    els.explorerTree.appendChild(empty);
+    return;
+  }
+
+  const roots = explorer.children[explorer.folder];
+  if (!roots) return;
+  if (roots.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'explorer-empty';
+    empty.textContent = 'No matching files in this folder.';
+    els.explorerTree.appendChild(empty);
+    return;
+  }
+  for (const entry of roots) appendExplorerNode(els.explorerTree, entry, 0);
+}
+
+function appendExplorerNode(parent, entry, depth) {
+  const row = document.createElement('div');
+  const isDir = entry.kind === 'dir';
+  const active = !isDir && samePath(entry.path, explorer.activePath);
+  const opened = !isDir && !!findOpen(entry.path);
+  row.className = 'ex-row ' + (isDir ? 'ex-dir' : 'ex-file') + (active ? ' active' : '') + (opened && !active ? ' opened' : '');
+  row.style.paddingLeft = (8 + depth * 14) + 'px';
+  row.dataset.path = entry.path;
+  row.dataset.kind = entry.kind;
+  row.title = entry.path;
+
+  const caret = document.createElement('span');
+  if (isDir) {
+    caret.className = 'ex-caret';
+    caret.textContent = explorer.expanded.has(entry.path) ? '▾' : '▸';
+  } else {
+    caret.className = 'ex-caret-ph';
+  }
+  row.appendChild(caret);
+
+  const name = document.createElement('span');
+  name.className = 'ex-name';
+  name.textContent = entry.name;
+  row.appendChild(name);
+
+  if (isDir) {
+    row.addEventListener('click', () => toggleExplorerDir(entry.path));
+  } else {
+    row.addEventListener('click', () => openFile(entry.path));
+    row.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showExplorerFileMenu(e.clientX, e.clientY, entry.path, entry.name, !!findOpen(entry.path));
+    });
+  }
+  parent.appendChild(row);
+
+  if (isDir && explorer.expanded.has(entry.path)) {
+    const kids = explorer.children[entry.path] || [];
+    for (const child of kids) appendExplorerNode(parent, child, depth + 1);
+  }
+}
+
+function showExplorerFileMenu(x, y, filePath, name, isOpen) {
+  const items = [
+    { label: 'Open', onClick: () => openFile(filePath) }
+  ];
+  if (isOpen) items.push({ label: 'Close', onClick: () => closeFile(filePath) });
+  if (window.api.showItemInFolder) {
+    const isMac = /Mac/i.test(navigator.platform || navigator.userAgent || '');
+    items.push({
+      label: isMac ? 'Reveal in Finder' : 'Reveal in File Explorer',
+      onClick: () => window.api.showItemInFolder(filePath)
+    });
+  }
+  showCtx(x, y, items);
+}
+
+function setupExplorerResizer() {
+  if (!els.explorerResizer) return;
+  els.explorerResizer.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = explorer.width;
+    document.body.classList.add('explorer-resizing');
+    const onMove = (ev) => {
+      explorer.width = Math.max(160, Math.min(560, Math.round(startW + (ev.clientX - startX))));
+      applyExplorerWidth();
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('explorer-resizing');
+      persistExplorerPrefs();
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+(function initExplorer() {
+  try {
+    const v = localStorage.getItem('jsonl-viewer:explorer');
+    if (v === '0') explorer.visible = false;
+    const w = Number(localStorage.getItem('jsonl-viewer:explorerWidth'));
+    if (w >= 160 && w <= 560) explorer.width = w;
+    const folder = localStorage.getItem('jsonl-viewer:folder');
+    if (folder) {
+      explorer.folder = folder;
+      explorer.folderName = fileName(folder);
+    }
+  } catch (e) {}
+  applyExplorerWidth();
+  setExplorerVisible(explorer.visible, { persist: false });
+  if (els.explorerToggle) els.explorerToggle.addEventListener('click', toggleExplorer);
+  if (els.explorerHide) els.explorerHide.addEventListener('click', () => setExplorerVisible(false));
+  if (els.explorerOpenFile) els.explorerOpenFile.addEventListener('click', () => openFile(null));
+  if (els.explorerOpenFolder) els.explorerOpenFolder.addEventListener('click', () => openExplorerFolder(null));
+  if (els.explorerRefresh) els.explorerRefresh.addEventListener('click', refreshExplorerFolder);
+  if (els.emptyOpenFile) els.emptyOpenFile.addEventListener('click', () => openFile(null));
+  if (els.emptyOpenFolder) els.emptyOpenFolder.addEventListener('click', () => openExplorerFolder(null));
+  setupExplorerResizer();
+  renderExplorer();
+  if (explorer.folder) {
+    loadDir(explorer.folder).then(() => renderExplorer()).catch(() => {});
+  }
+})();
 
 // ---- Events ----
 els.loadMoreBtn.addEventListener('click', loadMore);
@@ -1030,7 +1579,10 @@ window.addEventListener('dragenter', (e) => {
     els.dropOverlay.hidden = false;
   }
 });
-window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+});
 window.addEventListener('dragleave', (e) => {
   e.preventDefault();
   dragCounter--;
@@ -1043,8 +1595,20 @@ window.addEventListener('drop', (e) => {
   e.preventDefault();
   dragCounter = 0;
   els.dropOverlay.hidden = true;
-  const file = e.dataTransfer.files[0];
-  if (file && file.path) openFile(file.path);
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!file) return;
+  const filePath = (window.api && window.api.getPathForFile)
+    ? window.api.getPathForFile(file)
+    : file.path;
+  if (filePath) {
+    (async () => {
+      const st = window.api.statPath ? await window.api.statPath(filePath) : null;
+      if (st && st.isDirectory) await openExplorerFolder(filePath);
+      else await openFile(filePath);
+    })();
+  } else {
+    showToast('Could not read dropped file path', { kind: 'error' });
+  }
 });
 
 // Auto-open a file passed via command line
@@ -1052,11 +1616,26 @@ if (window.api.onAutoOpen) {
   window.api.onAutoOpen((filePath) => openFile(filePath));
 }
 
+// Reload when the open file is changed by another app
+if (window.api.onFileChanged) {
+  window.api.onFileChanged((info) => {
+    if (!state.filePath) return;
+    if (info && info.deleted) {
+      showToast('File was deleted on disk', { kind: 'error' });
+      return;
+    }
+    reloadFile();
+  });
+}
+
 // ---- Native menu handlers ----
 if (window.api.onMenu) {
   window.api.onMenu((action, arg) => {
     switch (action) {
       case 'open': openFile(null); break;
+      case 'open-folder': openExplorerFolder(null); break;
+      case 'close-file': if (state.filePath) closeFile(state.filePath); break;
+      case 'toggle-explorer': toggleExplorer(); break;
       case 'open-file': openFile(arg); break;
       case 'save': saveFile(); break;
       case 'save-as': saveAsFile(); break;
