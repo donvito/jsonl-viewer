@@ -7,10 +7,15 @@
     "start": "electron .",
     "dev": "electron . --dev"
   },
-  "keywords": ["jsonl", "viewer", "electron", "json"],
+  "keywords": [
+    "jsonl",
+    "viewer",
+    "electron",
+    "json"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^31.0.0"
+    "electron": "^43.4.0"
   }
 }
