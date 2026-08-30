@@ -129,7 +129,66 @@ function startWatching(filePath) {
   }
 }
 
+// ---- Opening files handed to us by the OS ----
+// Three entry points: argv (first launch on Windows/Linux, and `--file`),
+// the macOS `open-file` event (Finder / dock drop), and `second-instance`
+// (double-clicking an associated file while the app is already running).
+let rendererReady = false;
+let pendingOpenPath = null;
+
+function fileFromArgv(argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--file' && i + 1 < argv.length) return argv[i + 1];
+    if (a.startsWith('--file=')) return a.slice('--file='.length);
+  }
+  return argv.find((a) =>
+    !a.startsWith('-') && DATA_EXTS.some((e) => a.toLowerCase().endsWith(e))
+  ) || null;
+}
+
+// Queue the path until the renderer has loaded, then hand it over.
+function openExternalPath(filePath) {
+  if (!filePath) return;
+  const resolved = path.resolve(filePath);
+  if (!mainWindow || mainWindow.isDestroyed() || !rendererReady) {
+    pendingOpenPath = resolved;
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+  mainWindow.webContents.send('auto-open', resolved);
+}
+
+// macOS: Finder sends this instead of argv, and it can fire before `ready`.
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  if (!app.isReady() || !mainWindow || mainWindow.isDestroyed()) {
+    pendingOpenPath = path.resolve(filePath);
+    if (app.isReady() && (!mainWindow || mainWindow.isDestroyed())) createWindow();
+    return;
+  }
+  openExternalPath(filePath);
+});
+
+// Windows/Linux: route a second launch (file association double-click) into
+// the running instance instead of starting a duplicate app.
+const gotSingleInstanceLock = process.platform === 'darwin' || app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const file = fileFromArgv(argv.slice(1));
+    if (file) openExternalPath(file);
+    else if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
+
 function createWindow() {
+  rendererReady = false;
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -151,6 +210,15 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    rendererReady = true;
+    if (pendingOpenPath) {
+      const p = pendingOpenPath;
+      pendingOpenPath = null;
+      openExternalPath(p);
+    }
+  });
 
   if (process.argv.includes('--dev')) {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
@@ -316,6 +384,7 @@ ipcMain.handle('theme:current', (_e, key) => {
 });
 
 app.whenReady().then(() => {
+  if (!gotSingleInstanceLock) return;
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -323,23 +392,10 @@ app.whenReady().then(() => {
 
   // Auto-open a file passed on the command line:
   //   electron . --file=sample.jsonl   (or --file sample.jsonl)
-  // Fallback: any argv entry ending in a known data-file extension.
-  const exts = ['.jsonl', '.ndjson', '.json', '.log', '.txt'];
-  let fileArg = null;
-  for (let i = 0; i < process.argv.length; i++) {
-    const a = process.argv[i];
-    if (a === '--file' && i + 1 < process.argv.length) { fileArg = process.argv[i + 1]; break; }
-    if (a.startsWith('--file=')) { fileArg = a.slice('--file='.length); break; }
-  }
-  if (!fileArg) {
-    fileArg = process.argv.find((a) => !a.startsWith('-') && exts.some((e) => a.toLowerCase().endsWith(e)));
-  }
-  if (fileArg) {
-    const resolved = path.resolve(fileArg);
-    mainWindow.webContents.once('did-finish-load', () => {
-      mainWindow.webContents.send('auto-open', resolved);
-    });
-  }
+  // Fallback: any argv entry ending in a known data-file extension. In a
+  // packaged build argv[0] is the executable, so it never matches.
+  const fileArg = fileFromArgv(process.argv.slice(1));
+  if (fileArg) openExternalPath(fileArg);
 });
 
 app.on('window-all-closed', () => {

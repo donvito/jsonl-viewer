@@ -1,0 +1,124 @@
+# electron-builder configuration — see https://www.electron.build/configuration
+appId: com.donvito.jsonlviewer
+productName: JSONL Viewer
+copyright: Copyright © 2026 Melvin Vivas
+
+directories:
+  output: dist
+  buildResources: build
+
+# Ad-hoc signs the macOS bundle so it launches on Apple Silicon without an
+# Apple Developer certificate. No-op on Windows/Linux.
+afterPack: build/afterPack.js
+
+# Only ship what the app actually runs (electron is a devDependency, so
+# there is no node_modules payload to include).
+files:
+  - src/**/*
+  - renderer/**/*
+  - package.json
+
+# No native modules — skip the rebuild pass.
+npmRebuild: false
+asar: true
+
+# One MIME type per extension: shared-mime-info collapses duplicate
+# <mime-type> blocks, so reusing a type would drop the first glob.
+fileAssociations:
+  - ext: jsonl
+    name: JSON Lines File
+    description: JSON Lines file
+    mimeType: application/jsonl
+    role: Viewer
+  - ext: ndjson
+    name: Newline-Delimited JSON File
+    description: Newline-delimited JSON file
+    mimeType: application/x-ndjson
+    role: Viewer
+
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.png
+  darkModeSupport: true
+  # No Apple Developer certificate: skip real code signing. build/afterPack.js
+  # ad-hoc signs the bundle instead so macOS will actually launch it.
+  # To sign for distribution later: drop `identity: null`, set CSC_LINK /
+  # CSC_KEY_PASSWORD, and flip `notarize` on — the hardenedRuntime and
+  # entitlements settings below only take effect once that happens.
+  identity: null
+  notarize: false
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+
+dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  contents:
+    - x: 140
+      y: 200
+      type: file
+    - x: 400
+      y: 200
+      type: link
+      path: /Applications
+
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+    - target: portable
+      arch: [x64]
+
+nsis:
+  # One installer per architecture instead of a combined double-size one.
+  buildUniversalInstaller: false
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: JSONL Viewer
+  artifactName: ${productName}-Setup-${version}-${arch}.${ext}
+  uninstallDisplayName: ${productName} ${version}
+
+portable:
+  artifactName: ${productName}-${version}-portable-${arch}.${ext}
+
+linux:
+  icon: build/icon.png
+  category: Development
+  synopsis: Viewer for JSONL / NDJSON files
+  description: A desktop app for viewing, filtering and inspecting JSON Lines files.
+  maintainer: Melvin Vivas <melvindave@gmail.com>
+  # Match the .desktop filename to Electron's WM_CLASS so desktop
+  # environments associate running windows with the launcher entry.
+  syncDesktopName: true
+  desktop:
+    entry:
+      Keywords: jsonl;ndjson;json;viewer;
+  target:
+    - target: AppImage
+      arch: [x64, arm64]
+    - target: deb
+      arch: [x64, arm64]
+    - target: tar.gz
+      arch: [x64, arm64]
+
+appImage:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+deb:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+publish:
+  provider: github
+  owner: donvito
+  repo: jsonl-viewer
