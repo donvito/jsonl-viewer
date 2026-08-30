@@ -240,6 +240,7 @@ function buildMenu() {
       submenu: [
         { label: 'Open File…', accelerator: 'CmdOrCtrl+O', click: () => send('menu:open') },
         { label: 'Open Folder…', accelerator: 'CmdOrCtrl+Shift+O', click: () => send('menu:open-folder') },
+        { label: 'Close Folder', click: () => send('menu:close-folder') },
         { label: 'Open Recent', submenu: recentTemplate },
         { type: 'separator' },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => send('menu:save') },

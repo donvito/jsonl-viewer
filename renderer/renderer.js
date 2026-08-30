@@ -25,6 +25,7 @@ const explorer = {
   width: 248,
   folder: null,
   folderName: '',
+  autoFolderDisabled: false,
   children: {},
   expanded: new Set(),
   openFiles: [],
@@ -42,6 +43,7 @@ const els = {
   explorerOpenFolder: $('#explorerOpenFolder'),
   explorerHide: $('#explorerHide'),
   explorerRefresh: $('#explorerRefresh'),
+  explorerCloseFolder: $('#explorerCloseFolder'),
   explorerOpenSection: $('#explorerOpenSection'),
   explorerOpenList: $('#explorerOpenList'),
   explorerFolderLabel: $('#explorerFolderLabel'),
@@ -911,7 +913,7 @@ async function loadFileFromDisk(filePath) {
   setFileInfo('Loading…');
   const data = await window.api.readFile(filePath, state.maxLines);
   applyLoadedData(data, { preserveView: false });
-  if (!explorer.folder) {
+  if (!explorer.folder && !explorer.autoFolderDisabled) {
     await openExplorerFolder(parentDir(data.path), { persist: true });
   } else {
     await revealInExplorer(data.path);
@@ -1115,6 +1117,7 @@ function persistExplorerPrefs() {
     localStorage.setItem('jsonl-viewer:explorer', explorer.visible ? '1' : '0');
     localStorage.setItem('jsonl-viewer:explorerWidth', String(explorer.width));
     if (explorer.folder) localStorage.setItem('jsonl-viewer:folder', explorer.folder);
+    else localStorage.removeItem('jsonl-viewer:folder');
   } catch (e) {}
 }
 
@@ -1150,6 +1153,7 @@ async function openExplorerFolder(dirPath, { persist = true } = {}) {
   }
   explorer.folder = dirPath;
   explorer.folderName = fileName(dirPath) || dirPath;
+  explorer.autoFolderDisabled = false;
   explorer.expanded = new Set([dirPath]);
   explorer.children = {};
   try {
@@ -1174,6 +1178,19 @@ async function refreshExplorerFolder() {
   renderExplorer();
 }
 
+// Closes the folder tree only. Files opened from it stay loaded in the
+// editor and in the "Open files" list.
+function closeExplorerFolder() {
+  if (!explorer.folder) return;
+  explorer.folder = null;
+  explorer.folderName = '';
+  explorer.children = {};
+  explorer.expanded = new Set();
+  explorer.autoFolderDisabled = true;
+  persistExplorerPrefs();
+  renderExplorer();
+}
+
 async function toggleExplorerDir(dirPath) {
   if (explorer.expanded.has(dirPath)) {
     explorer.expanded.delete(dirPath);
@@ -1193,6 +1210,7 @@ function renderExplorer() {
     els.explorerFolderLabel.title = explorer.folder || '';
   }
   if (els.explorerRefresh) els.explorerRefresh.hidden = !explorer.folder;
+  if (els.explorerCloseFolder) els.explorerCloseFolder.hidden = !explorer.folder;
 
   if (els.explorerOpenSection && els.explorerOpenList) {
     els.explorerOpenSection.hidden = explorer.openFiles.length === 0;
@@ -1360,6 +1378,7 @@ function setupExplorerResizer() {
   if (els.explorerOpenFile) els.explorerOpenFile.addEventListener('click', () => openFile(null));
   if (els.explorerOpenFolder) els.explorerOpenFolder.addEventListener('click', () => openExplorerFolder(null));
   if (els.explorerRefresh) els.explorerRefresh.addEventListener('click', refreshExplorerFolder);
+  if (els.explorerCloseFolder) els.explorerCloseFolder.addEventListener('click', closeExplorerFolder);
   if (els.emptyOpenFile) els.emptyOpenFile.addEventListener('click', () => openFile(null));
   if (els.emptyOpenFolder) els.emptyOpenFolder.addEventListener('click', () => openExplorerFolder(null));
   setupExplorerResizer();
@@ -1634,6 +1653,7 @@ if (window.api.onMenu) {
     switch (action) {
       case 'open': openFile(null); break;
       case 'open-folder': openExplorerFolder(null); break;
+      case 'close-folder': closeExplorerFolder(); break;
       case 'close-file': if (state.filePath) closeFile(state.filePath); break;
       case 'toggle-explorer': toggleExplorer(); break;
       case 'open-file': openFile(arg); break;

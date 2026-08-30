@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('api', {
   onFileChanged: (cb) => ipcRenderer.on('file:changed', (_e, info) => cb(info)),
   onMenu: (cb) => ipcRenderer.on('menu:open', () => cb('open'))
     .on('menu:open-folder', () => cb('open-folder'))
+    .on('menu:close-folder', () => cb('close-folder'))
     .on('menu:close-file', () => cb('close-file'))
     .on('menu:toggle-explorer', () => cb('toggle-explorer'))
     .on('menu:save', () => cb('save'))
