@@ -8,8 +8,29 @@ on:
 permissions:
   contents: write
 
+env:
+  IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+
 jobs:
+  # One job owns creating the release. Without this the three build jobs each
+  # ask electron-builder to create it, and since GitHub allows several *draft*
+  # releases to share a tag, they don't converge - the artifacts end up split
+  # across two drafts (which is what happened on v1.2.0).
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create draft release
+        if: env.IS_TAG == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --draft --title "$TAG" --generate-notes
+
   build:
+    needs: prepare
     name: ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -33,10 +54,9 @@ jobs:
 
       - run: npm ci
 
-      # Publishes to the GitHub release only for tag pushes; a manual run just
-      # uploads the artifacts below.
+      # Uploads into the draft `prepare` created; a manual run just builds.
       - name: Build ${{ matrix.platform }} installers
-        run: npx electron-builder --${{ matrix.platform }} --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+        run: npx electron-builder --${{ matrix.platform }} --publish ${{ env.IS_TAG == 'true' && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -51,3 +71,15 @@ jobs:
             dist/*.AppImage
             dist/*.deb
             dist/*.tar.gz
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: gh release edit "$TAG" --draft=false --latest
