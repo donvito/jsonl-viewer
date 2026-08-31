@@ -12,6 +12,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
+    "test": "node test-parse.js && node test-traces.js",
     "icon": "rsvg-convert -w 1024 -h 1024 build/icon.svg -o build/icon.png",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",

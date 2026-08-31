@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('api', {
   openFile: () => ipcRenderer.invoke('dialog:openFile'),
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
   listDir: (dirPath) => ipcRenderer.invoke('dir:list', dirPath),
+  listTraceFiles: (source) => ipcRenderer.invoke('trace:list', source),
   statPath: (filePath) => ipcRenderer.invoke('fs:stat', filePath),
   showItemInFolder: (filePath) => ipcRenderer.invoke('shell:showItem', filePath),
   watchFile: (filePath) => ipcRenderer.invoke('file:watch', filePath),
@@ -27,6 +28,7 @@ contextBridge.exposeInMainWorld('api', {
   onFileChanged: (cb) => ipcRenderer.on('file:changed', (_e, info) => cb(info)),
   onMenu: (cb) => ipcRenderer.on('menu:open', () => cb('open'))
     .on('menu:open-folder', () => cb('open-folder'))
+    .on('menu:trace-sources', () => cb('trace-sources'))
     .on('menu:close-folder', () => cb('close-folder'))
     .on('menu:close-file', () => cb('close-file'))
     .on('menu:toggle-explorer', () => cb('toggle-explorer'))

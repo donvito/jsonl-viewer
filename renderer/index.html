@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+        content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
   <title>JSONL Viewer</title>
   <link rel="stylesheet" href="themes.css" />
   <link rel="stylesheet" href="styles.css" />
@@ -17,6 +17,10 @@
       </div>
       <div class="toolbar-actions">
         <button id="explorerToggle" class="btn" title="Toggle file explorer">Files</button>
+        <div class="trace-sources-picker">
+          <button id="traceSourcesBtn" class="btn trace-sources-btn" title="Open a trace from Codex, Claude Code, Pi, or Hermes" aria-haspopup="true" aria-expanded="false">Traces</button>
+          <div id="traceSourcesMenu" class="trace-sources-menu" hidden></div>
+        </div>
         <button id="loadMoreBtn" class="btn" disabled>Load more</button>
         <div class="theme-picker">
           <button id="themeBtn" class="theme-btn" title="Choose theme" aria-haspopup="true" aria-expanded="false">
@@ -61,6 +65,17 @@
         <label><input type="radio" name="view" value="table" checked /> Table</label>
         <label><input type="radio" name="view" value="tree" /> Tree</label>
         <label><input type="radio" name="view" value="raw" /> Raw</label>
+        <label id="traceViewToggle" hidden><input type="radio" name="view" value="trace" /> Traces</label>
+      </div>
+      <div id="traceControls" class="trace-controls" hidden>
+        <div class="trace-segmented" aria-label="Trace width">
+          <button type="button" data-trace-layout="compact" class="active">Compact</button>
+          <button type="button" data-trace-layout="wide">Wide</button>
+        </div>
+        <div class="trace-segmented" aria-label="Trace details">
+          <button type="button" data-trace-expansion="collapsed">Collapsed</button>
+          <button type="button" data-trace-expansion="expanded" class="active">Expanded</button>
+        </div>
       </div>
       <div class="col-picker">
         <button id="colToggle" class="btn" hidden>Columns</button>
@@ -80,6 +95,7 @@
         <p>Browse the explorer, drag a file onto this window, or use the buttons below.</p>
         <div class="empty-actions">
           <button id="emptyOpenFile" class="btn">Open File</button>
+          <button id="emptyTraceSources" class="btn">Open Traces</button>
           <button id="emptyOpenFolder" class="btn primary">Open Folder</button>
         </div>
         <p class="hint">Each line is parsed as a separate JSON object.</p>
@@ -101,6 +117,7 @@
   </div>
 
   <div id="ctxMenu" class="ctx-menu" hidden></div>
+  <script src="trace-parser.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

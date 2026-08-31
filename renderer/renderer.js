@@ -6,8 +6,13 @@ const state = {
   parsedLines: [],
   errors: [],
   truncated: false,
+  trace: null,
   maxLines: 5000,
   view: 'table',
+  traceLayout: 'compact',
+  traceExpansion: 'expanded',
+  traceOpen: new Set(),
+  traceClosed: new Set(),
   filter: '',
   expanded: new Set(),
   treeExpanded: new Set(),
@@ -19,6 +24,23 @@ const state = {
   columnVisibility: {},
   recent: []
 };
+
+// Trace detail values stay in memory instead of being copied into HTML
+// attributes. This keeps large tool inputs/results out of the DOM and makes
+// the copy buttons safe for arbitrary trace content.
+const traceCopyValues = new Map();
+let traceCopySerial = 0;
+
+const TRACE_SOURCES = [
+  { key: 'codex', label: 'Codex', location: '~/.codex/sessions' },
+  { key: 'claude', label: 'Claude Code', location: '~/.claude/projects' },
+  { key: 'pi', label: 'Pi', location: '~/.pi/agent/sessions' },
+  { key: 'hermes', label: 'Hermes', location: '~/.hermes/session-exports/traces' }
+];
+const traceSourceResults = new Map();
+const traceSourceFileValues = new Map();
+let traceSourceFileSerial = 0;
+let traceSourcesRequest = 0;
 
 const explorer = {
   visible: true,
@@ -55,12 +77,16 @@ const els = {
   themeBtn: $('#themeBtn'),
   themeLabel: $('#themeLabel'),
   themeMenu: $('#themeMenu'),
+  traceSourcesBtn: $('#traceSourcesBtn'),
+  traceSourcesMenu: $('#traceSourcesMenu'),
   editToggle: $('#editToggle'),
   saveBtn: $('#saveBtn'),
   fileInfo: $('#fileInfo'),
   controls: $('#controls'),
   search: $('#search'),
   stat: $('#stat'),
+  traceViewToggle: $('#traceViewToggle'),
+  traceControls: $('#traceControls'),
   content: $('#content'),
   viewPane: $('#viewPane'),
   sidebar: $('#sidebar'),
@@ -74,6 +100,7 @@ const els = {
   treeExpandAll: $('#treeExpandAll'),
   treeCollapseAll: $('#treeCollapseAll'),
   emptyState: $('#emptyState'),
+  emptyTraceSources: $('#emptyTraceSources'),
   dropOverlay: $('#dropOverlay'),
   ctxMenu: $('#ctxMenu')
 };
@@ -98,6 +125,13 @@ function persistColumnWidths() {
 
 function recomputeAllKeys() {
   state.allKeys = collectKeys(state.parsedLines);
+}
+
+function recomputeTrace() {
+  state.trace = window.traceParser && window.traceParser.parse
+    ? window.traceParser.parse(state.parsedLines, state.filePath)
+    : null;
+  if (!state.trace && state.view === 'trace') state.view = 'table';
 }
 
 function visibleKeys() {
@@ -283,6 +317,158 @@ function escapeHtml(s) {
   }[c]));
 }
 
+// ---- Common agent trace locations ----
+function traceSourceDefinition(key) {
+  return TRACE_SOURCES.find((source) => source.key === key) || null;
+}
+
+function formatTraceSourceTime(value) {
+  const date = new Date(Number(value));
+  if (!Number.isFinite(Number(value)) || Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+  });
+}
+
+function traceSourceLocationLabel(source, result) {
+  const roots = result && Array.isArray(result.roots) ? result.roots : [];
+  const existing = roots.filter((root) => root.exists && root.displayPath).map((root) => root.displayPath);
+  const all = roots.filter((root) => root.displayPath).map((root) => root.displayPath);
+  return (existing.length ? existing : all).join(' · ') || source.location;
+}
+
+function traceSourceFileToken(filePath) {
+  const token = `trace-source-file-${++traceSourceFileSerial}`;
+  traceSourceFileValues.set(token, filePath);
+  return token;
+}
+
+function renderTraceSourcesMenu() {
+  if (!els.traceSourcesMenu) return;
+  traceSourceFileValues.clear();
+  const sourceCards = TRACE_SOURCES.map((source) => {
+    const result = traceSourceResults.get(source.key);
+    const location = traceSourceLocationLabel(source, result);
+    const folder = result && Array.isArray(result.roots)
+      ? result.roots.find((root) => root.exists)
+      : null;
+    const folderButton = folder
+      ? `<button type="button" class="trace-source-folder" data-trace-folder="${escapeHtml(source.key)}">Open folder</button>`
+      : '';
+
+    let body = '<div class="trace-source-loading">Scanning…</div>';
+    if (result) {
+      if (result.error) {
+        body = `<div class="trace-source-empty">${escapeHtml(result.error)}</div>`;
+      } else if (result.files && result.files.length) {
+        const files = result.files.map((file) => {
+          const token = traceSourceFileToken(file.path);
+          const detail = [
+            file.displayPath,
+            formatBytes(file.size),
+            formatTraceSourceTime(file.mtimeMs)
+          ].filter(Boolean).join(' · ');
+          return `<button type="button" class="trace-source-file" data-trace-file="${escapeHtml(token)}" title="${escapeHtml(file.path)}">
+            <span class="trace-source-file-name">${escapeHtml(file.name)}</span>
+            <span class="trace-source-file-detail">${escapeHtml(detail)}</span>
+          </button>`;
+        }).join('');
+        const total = Number(result.totalFiles) || result.files.length;
+        const more = total > result.files.length
+          ? `<div class="trace-source-count">Showing the latest ${result.files.length} of ${total} traces</div>`
+          : `<div class="trace-source-count">${total} trace${total === 1 ? '' : 's'}</div>`;
+        body = `<div class="trace-source-files">${files}</div>${more}`;
+      } else {
+        body = '<div class="trace-source-empty">No JSONL traces found here.</div>';
+        if (result.emptyNote) {
+          body += `<div class="trace-source-note">${escapeHtml(result.emptyNote)}</div>`;
+        }
+      }
+    }
+
+    return `<section class="trace-source-card">
+      <div class="trace-source-head">
+        <div class="trace-source-name"><strong>${escapeHtml(source.label)}</strong><code>${escapeHtml(location)}</code></div>
+        ${folderButton}
+      </div>
+      ${body}
+    </section>`;
+  }).join('');
+
+  els.traceSourcesMenu.innerHTML = `<div class="trace-sources-head">
+    <div><strong>Open agent traces</strong><span>Choose a recent session</span></div>
+    <button type="button" class="trace-sources-refresh" data-trace-refresh title="Refresh trace locations" aria-label="Refresh trace locations">↻</button>
+  </div><div class="trace-sources-list">${sourceCards}</div>`;
+
+  const refresh = els.traceSourcesMenu.querySelector('[data-trace-refresh]');
+  if (refresh) refresh.addEventListener('click', (event) => {
+    event.stopPropagation();
+    loadTraceSources();
+  });
+  els.traceSourcesMenu.querySelectorAll('[data-trace-file]').forEach((button) => {
+    button.addEventListener('click', () => openTraceSourceFile(button.dataset.traceFile));
+  });
+  els.traceSourcesMenu.querySelectorAll('[data-trace-folder]').forEach((button) => {
+    button.addEventListener('click', () => openTraceSourceFolder(button.dataset.traceFolder));
+  });
+}
+
+async function loadTraceSources() {
+  if (!els.traceSourcesMenu || !window.api.listTraceFiles) return;
+  const request = ++traceSourcesRequest;
+  traceSourceResults.clear();
+  renderTraceSourcesMenu();
+  const results = await Promise.all(TRACE_SOURCES.map(async (source) => {
+    try {
+      return await window.api.listTraceFiles(source.key);
+    } catch (error) {
+      return { key: source.key, label: source.label, roots: [], files: [], error: error.message || 'Unable to scan this location' };
+    }
+  }));
+  if (request !== traceSourcesRequest || els.traceSourcesMenu.hidden) return;
+  results.forEach((result) => traceSourceResults.set(result.key, result));
+  renderTraceSourcesMenu();
+}
+
+async function openTraceSourceFile(token) {
+  const filePath = traceSourceFileValues.get(token);
+  closeTraceSourcesMenu();
+  if (filePath) await openFile(filePath, { openParentFolder: false });
+}
+
+async function openTraceSourceFolder(key) {
+  const source = traceSourceDefinition(key);
+  const result = traceSourceResults.get(key);
+  const root = result && Array.isArray(result.roots) ? result.roots.find((item) => item.exists) : null;
+  closeTraceSourcesMenu();
+  if (!root) {
+    showToast(`${source ? source.label : 'Trace'} folder not found`, { kind: 'error' });
+    return;
+  }
+  await openExplorerFolder(root.path, { persist: true });
+}
+
+function closeTraceSourcesMenu() {
+  if (!els.traceSourcesMenu) return;
+  els.traceSourcesMenu.hidden = true;
+  if (els.traceSourcesBtn) els.traceSourcesBtn.setAttribute('aria-expanded', 'false');
+}
+
+function openTraceSourcesMenu() {
+  if (!els.traceSourcesMenu) return;
+  if (!els.traceSourcesMenu.hidden) {
+    closeTraceSourcesMenu();
+    return;
+  }
+  if (els.themeMenu) closeThemeMenu();
+  if (els.colPopover) els.colPopover.hidden = true;
+  els.traceSourcesMenu.hidden = false;
+  els.traceSourcesBtn.setAttribute('aria-expanded', 'true');
+  renderTraceSourcesMenu();
+  loadTraceSources();
+}
+
+
 // Produce syntax-highlighted HTML from a JS value
 function highlightValue(value, indent = 0) {
   if (value === null) return '<span class="null">null</span>';
@@ -329,6 +515,8 @@ function collectKeys(lines) {
 
 // ---- Rendering ----
 function render() {
+  const activeViewRadio = document.querySelector(`input[name="view"][value="${state.view}"]`);
+  if (activeViewRadio) activeViewRadio.checked = true;
   if (!state.filePath) {
     els.controls.hidden = true;
     els.viewPane.innerHTML = '';
@@ -339,14 +527,24 @@ function render() {
     els.colToggle.hidden = true;
     els.treeExpandAll.hidden = true;
     els.treeCollapseAll.hidden = true;
+    els.traceViewToggle.hidden = true;
+    els.traceControls.hidden = true;
+    els.editToggle.hidden = false;
+    els.search.placeholder = 'Filter rows by text (searches raw JSON)…';
     return;
   }
 
   els.emptyState.hidden = true;
   els.controls.hidden = false;
+  els.traceViewToggle.hidden = !state.trace;
+  els.traceControls.hidden = state.view !== 'trace' || !state.trace;
+  els.search.placeholder = state.view === 'trace'
+    ? 'Filter trace content (messages, tools, results)…'
+    : 'Filter rows by text (searches raw JSON)…';
   els.colToggle.hidden = state.view !== 'table';
   els.treeExpandAll.hidden = state.view !== 'tree';
   els.treeCollapseAll.hidden = state.view !== 'tree';
+  els.editToggle.hidden = state.view === 'trace';
 
   const filtered = applyFilter(state.parsedLines);
 
@@ -354,14 +552,19 @@ function render() {
     renderTable(filtered);
   } else if (state.view === 'tree') {
     renderTree(filtered);
+  } else if (state.view === 'trace' && state.trace) {
+    renderTrace(state.trace);
   } else {
     renderRaw(filtered);
   }
 
   renderSidebar();
 
-  const shown = filtered.length;
-  els.stat.textContent = `Showing ${shown} of ${state.parsedLines.length} loaded · ${state.totalLines} total in file${state.errors.length ? ` · ${state.errors.length} parse errors` : ''}`;
+  const shown = state.view === 'trace' && state.trace
+    ? filteredTraceItems(state.trace).length
+    : filtered.length;
+  const statPrefix = state.view === 'trace' && state.trace ? 'trace items' : 'loaded';
+  els.stat.textContent = `Showing ${shown} ${statPrefix} · ${state.totalLines} total in file${state.errors.length ? ` · ${state.errors.length} parse errors` : ''}`;
   els.loadMoreBtn.disabled = !state.truncated;
   els.saveBtn.classList.toggle('hidden-slot', !state.editMode);
 }
@@ -422,6 +625,7 @@ function renderSidebar() {
       }
       if (rawEl) rawEl.textContent = l.raw;
       els.sidebarTitle.textContent = `Row ${l.index + 1}${l.parseError ? ' · parse error' : ''}`;
+      recomputeTrace();
       markDirty(true);
     };
     ta.addEventListener('input', update);
@@ -463,6 +667,7 @@ function commitCellEdit(line, key, text) {
   line.raw = JSON.stringify(line.value);
   line.parseError = null;
   state.errors = state.errors.filter((e) => e.index !== line.index);
+  recomputeTrace();
   markDirty(true);
 }
 
@@ -638,6 +843,7 @@ function renderRaw(lines) {
           line.raw = ta.value;
           ta.classList.add('invalid');
         }
+        recomputeTrace();
         markDirty(true);
       });
       ta.addEventListener('blur', () => render());
@@ -655,6 +861,360 @@ function renderRaw(lines) {
   els.viewPane.innerHTML = `<div class="raw-view">${rows}</div>`;
   els.viewPane.querySelectorAll('.raw-row[data-idx]').forEach((row) => {
     row.addEventListener('click', () => selectRow(Number(row.dataset.idx)));
+  });
+}
+
+// ---- Agent trace view ----
+function filteredTraceItems(trace) {
+  if (!trace) return [];
+  const q = state.filter.trim().toLowerCase();
+  if (!q) return trace.items;
+  return trace.items.filter((item) => (item.searchText || '').includes(q));
+}
+
+function traceDisclosureOpen(key) {
+  if (state.traceOpen.has(key)) return true;
+  if (state.traceClosed.has(key)) return false;
+  return state.traceExpansion === 'expanded';
+}
+
+function toggleTraceDisclosure(key) {
+  if (traceDisclosureOpen(key)) {
+    state.traceOpen.delete(key);
+    state.traceClosed.add(key);
+  } else {
+    state.traceClosed.delete(key);
+    state.traceOpen.add(key);
+  }
+}
+
+function traceCopyToken(value) {
+  const key = `trace-copy-${traceCopySerial++}`;
+  traceCopyValues.set(key, value == null ? '' : String(value));
+  return key;
+}
+
+function formatTraceValue(value) {
+  if (value == null || value === '') return '—';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    const parts = value.map((part) => {
+      if (typeof part === 'string') return part;
+      if (!part || typeof part !== 'object') return String(part);
+      if (part.type === 'image' || part.type === 'input_image' || part.type === 'output_image') return '[image attachment]';
+      if (typeof part.text === 'string') return part.text;
+      if (typeof part.thinking === 'string') return part.thinking;
+      return null;
+    });
+    if (parts.every((part) => part != null)) return parts.join('\n');
+  }
+  if (typeof value === 'object' && (typeof value.stdout === 'string' || typeof value.stderr === 'string')) {
+    return [value.stdout, value.stderr].filter((part) => part).join('\n');
+  }
+  try { return JSON.stringify(value, null, 2); } catch (e) { return String(value); }
+}
+
+function traceCompactValue(value, maxLength = 180) {
+  const compact = formatTraceValue(value).replace(/\s+/g, ' ').trim();
+  if (compact.length <= maxLength) return compact;
+  return compact.slice(0, maxLength - 1) + '…';
+}
+
+function traceInlineMarkdown(text) {
+  let output = escapeHtml(text);
+  output = output.replace(/`([^`]+)`/g, '<code>$1</code>');
+  output = output.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  output = output.replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, '$1<em>$2</em>');
+  output = output.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" rel="noreferrer">$1</a>');
+  return output;
+}
+
+// Small, safe Markdown subset for agent responses. Trace content is escaped
+// before formatting so model output can never inject renderer HTML.
+function renderTraceMarkdown(text) {
+  const lines = String(text == null ? '' : text).replace(/\r\n/g, '\n').split('\n');
+  const html = [];
+  let inCode = false;
+  let codeLines = [];
+  let listType = null;
+
+  const closeList = () => {
+    if (listType) {
+      html.push(`</${listType}>`);
+      listType = null;
+    }
+  };
+
+  for (const line of lines) {
+    if (/^\s*```/.test(line)) {
+      closeList();
+      if (inCode) {
+        html.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+        codeLines = [];
+        inCode = false;
+      } else {
+        inCode = true;
+      }
+      continue;
+    }
+    if (inCode) {
+      codeLines.push(line);
+      continue;
+    }
+    if (!line.trim()) {
+      closeList();
+      continue;
+    }
+    const heading = line.match(/^\s*(#{1,4})\s+(.+)$/);
+    if (heading) {
+      closeList();
+      const level = Math.min(4, heading[1].length);
+      html.push(`<h${level}>${traceInlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+    const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+    const numbered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (bullet || numbered) {
+      const nextType = bullet ? 'ul' : 'ol';
+      if (listType !== nextType) {
+        closeList();
+        listType = nextType;
+        html.push(`<${listType}>`);
+      }
+      html.push(`<li>${traceInlineMarkdown((bullet || numbered)[1])}</li>`);
+      continue;
+    }
+    closeList();
+    html.push(`<p>${traceInlineMarkdown(line)}</p>`);
+  }
+  if (inCode) html.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+  closeList();
+  return html.join('');
+}
+
+function traceRoleLabel(item) {
+  if (item.kind === 'user') return 'User';
+  if (item.kind === 'assistant') return 'Assistant';
+  if (item.kind === 'tool') return item.label || 'Tool';
+  return item.label || 'Event';
+}
+
+function traceRoleGlyph(item) {
+  if (item.kind === 'user') return '●';
+  if (item.kind === 'assistant') return '◉';
+  if (item.kind === 'tool') return '⚙';
+  return '◆';
+}
+
+function traceToolGroupLabel(calls) {
+  const count = calls.length;
+  const names = Array.from(new Set(calls.map(({ block }) => block.name || 'tool')));
+  const suffix = names.length === 1 ? ` (${names[0]})` : '';
+  return `${count} tool call${count === 1 ? '' : 's'}${suffix}`;
+}
+
+function renderTraceToolDetails(block) {
+  const input = formatTraceValue(block.input);
+  const hasResult = !!block.result;
+  const result = hasResult ? formatTraceValue(block.result.output) : 'Waiting for result…';
+  const resultError = hasResult && !!block.result.error;
+  const inputCopy = traceCopyToken(input);
+  const resultCopy = traceCopyToken(result);
+  return `<div class="trace-tool-body">
+    <div class="trace-code-section">
+      <div class="trace-code-head"><div class="trace-code-label">Input</div><button type="button" class="trace-copy-button" data-trace-copy="${escapeHtml(inputCopy)}" aria-label="Copy tool input" title="Copy tool input">⧉</button></div>
+      <pre><code>${escapeHtml(input)}</code></pre>
+    </div>
+    <div class="trace-code-section">
+      <div class="trace-code-head"><div class="trace-code-label">${resultError ? 'Error' : 'Result'}</div><button type="button" class="trace-copy-button" data-trace-copy="${escapeHtml(resultCopy)}" aria-label="Copy tool result" title="Copy tool result">⧉</button></div>
+      <pre class="${resultError ? 'error' : ''}"><code>${escapeHtml(result)}</code></pre>
+    </div>
+  </div>`;
+}
+
+function renderTraceToolRow(item, block, blockIndex) {
+  const key = `tool:${item.sourceLine}:${block.id || blockIndex}`;
+  const open = traceDisclosureOpen(key);
+  const hasResult = !!block.result;
+  const resultError = (hasResult && !!block.result.error) || !!block.error;
+  const status = hasResult ? (resultError ? '· error' : '· complete') : '· running';
+  const inputPreview = traceCompactValue(block.input);
+  const resultPreview = traceCompactValue(hasResult ? block.result.output : 'Waiting for result…', 220);
+  const detailMarkup = open ? renderTraceToolDetails(block) : '';
+  return `<div class="trace-tool-row">
+    <button type="button" class="trace-disclosure trace-tool-summary" data-trace-disclosure="${escapeHtml(key)}" aria-expanded="${open}">
+      <span class="trace-disclosure-caret">${open ? '▾' : '▸'}</span><span class="trace-tool-icon">↗</span><strong class="trace-tool-name">${escapeHtml(block.name || 'tool')}</strong>${inputPreview ? `<span class="trace-tool-input-preview">${escapeHtml(inputPreview)}</span>` : ''}<span class="trace-tool-status${resultError ? ' error' : ''}">${escapeHtml(status)}</span>
+    </button>
+    <div class="trace-tool-result-preview${resultError ? ' error' : ''}"><span class="trace-result-dot">●</span><span>${escapeHtml(resultPreview)}</span></div>
+    ${detailMarkup}
+  </div>`;
+}
+
+function renderTraceToolGroup(item, calls) {
+  const firstBlock = calls[0] && calls[0].block;
+  const key = `tools:${item.sourceLine}:${firstBlock && (firstBlock.id || calls[0].blockIndex)}`;
+  const open = traceDisclosureOpen(key);
+  return `<section class="trace-tool-group">
+    <button type="button" class="trace-tool-group-header trace-disclosure" data-trace-disclosure="${escapeHtml(key)}" aria-expanded="${open}">
+      <span class="trace-disclosure-caret">${open ? '▾' : '▸'}</span><strong>${escapeHtml(traceToolGroupLabel(calls))}</strong>
+    </button>
+    ${open ? `<div class="trace-tool-list">${calls.map(({ block, blockIndex }) => renderTraceToolRow(item, block, blockIndex)).join('')}</div>` : ''}
+  </section>`;
+}
+
+function renderTraceBlocks(item) {
+  const html = [];
+  let toolCalls = [];
+  const flushTools = () => {
+    if (!toolCalls.length) return;
+    html.push(renderTraceToolGroup(item, toolCalls));
+    toolCalls = [];
+  };
+  item.blocks.forEach((block, blockIndex) => {
+    if (block.kind === 'tool-call') {
+      toolCalls.push({ block, blockIndex });
+      return;
+    }
+    flushTools();
+    html.push(renderTraceBlock(item, block, blockIndex));
+  });
+  flushTools();
+  return html.join('');
+}
+
+function renderTraceBlock(item, block, blockIndex) {
+  if (!block) return '';
+  if (block.kind === 'text') {
+    return `<div class="trace-text">${renderTraceMarkdown(block.text)}</div>`;
+  }
+  if (block.kind === 'image') {
+    const label = block.mimeType ? `Image · ${escapeHtml(block.mimeType)}` : 'Image attachment';
+    let preview = '';
+    if (block.data && block.data.length <= 2 * 1024 * 1024) {
+      const src = String(block.data).startsWith('data:')
+        ? String(block.data)
+        : `data:${block.mimeType || 'image/png'};base64,${block.data}`;
+      preview = `<img class="trace-image" src="${escapeHtml(src)}" alt="Trace image attachment" />`;
+    }
+    return `<div class="trace-attachment"><span class="trace-attachment-icon">▧</span>${label}</div>${preview}`;
+  }
+  if (block.kind === 'thinking') {
+    const key = `thinking:${item.sourceLine}:${blockIndex}`;
+    const open = traceDisclosureOpen(key);
+    const thinkingPreview = String(block.text || '').replace(/\s+/g, ' ').trim().slice(0, 150);
+    return `<div class="trace-thinking-block">
+      <button type="button" class="trace-disclosure trace-thinking-summary" data-trace-disclosure="${escapeHtml(key)}" aria-expanded="${open}">
+        <span class="trace-thinking-badge">Thinking</span><span class="trace-thinking-preview">${escapeHtml(thinkingPreview)}${thinkingPreview.length >= 150 ? '…' : ''}</span><span class="trace-disclosure-caret">${open ? '▴' : '▾'}</span>
+      </button>
+      ${open ? `<div class="trace-thinking-body">${renderTraceMarkdown(block.text || '')}</div>` : ''}
+    </div>`;
+  }
+  if (block.kind === 'tool-result') {
+    const key = `result:${item.sourceLine}:${block.id || blockIndex}`;
+    const open = traceDisclosureOpen(key);
+    const output = formatTraceValue(block.output);
+    const outputCopy = traceCopyToken(output);
+    return `<div class="trace-tool-group trace-tool-group-standalone">
+      <button type="button" class="trace-tool-group-header trace-disclosure" data-trace-disclosure="${escapeHtml(key)}" aria-expanded="${open}">
+        <span class="trace-disclosure-caret">${open ? '▾' : '▸'}</span><strong>Tool result</strong>
+      </button>
+      ${open ? `<div class="trace-tool-body"><div class="trace-code-section"><div class="trace-code-head"><div class="trace-code-label">${block.error ? 'Error' : 'Result'}</div><button type="button" class="trace-copy-button" data-trace-copy="${escapeHtml(outputCopy)}" aria-label="Copy tool result" title="Copy tool result">⧉</button></div><pre class="${block.error ? 'error' : ''}"><code>${escapeHtml(output)}</code></pre></div></div>` : ''}
+    </div>`;
+  }
+  return '';
+}
+
+function formatTraceTokens(value) {
+  return value == null ? '' : Number(value).toLocaleString();
+}
+
+function renderTraceItem(item) {
+  const idx = item.sourceLine == null ? '' : ` data-idx="${item.sourceLine}"`;
+  const model = item.provider && item.model ? `${item.provider}/${item.model}` : (item.model || item.provider || '');
+  const usage = item.usage && (item.usage.input != null || item.usage.output != null)
+    ? `${formatTraceTokens(item.usage.input)}↓ ${formatTraceTokens(item.usage.output)}↑${item.usage.cacheRead ? ` (${formatTraceTokens(item.usage.cacheRead)} cached)` : ''}`
+    : '';
+  const blocks = renderTraceBlocks(item);
+  const body = blocks || (item.kind === 'event' ? '<div class="trace-event-empty">No additional details</div>' : '<div class="trace-event-empty">No visible content</div>');
+  const metadata = [];
+  if (usage) metadata.push(`<span class="trace-usage">${escapeHtml(usage)}</span>`);
+  if (item.metadata && item.metadata.durationMs != null) metadata.push(`<span class="trace-usage">${escapeHtml(String(item.metadata.durationMs))} ms</span>`);
+  if (item.metadata && item.metadata.costUsd != null) metadata.push(`<span class="trace-usage">$${escapeHtml(Number(item.metadata.costUsd).toFixed(4))}</span>`);
+  const identity = `<span class="trace-role-glyph">${traceRoleGlyph(item)}</span><strong>${escapeHtml(traceRoleLabel(item))}</strong>${model ? `<span class="trace-entry-model">${escapeHtml(model)}</span>` : ''}${item.timestamp ? `<time class="trace-entry-time">${escapeHtml(item.timestamp)}</time>` : ''}`;
+  return `<article class="trace-entry trace-entry-${escapeHtml(item.kind)}"${idx}>
+    <header class="trace-entry-header">
+      <div class="trace-entry-identity">${identity}</div>
+      <div class="trace-entry-meta">${metadata.join('')}</div>
+    </header>
+    <div class="trace-entry-body">${body}</div>
+  </article>`;
+}
+
+function updateTraceControls() {
+  if (!els.traceControls) return;
+  els.traceControls.querySelectorAll('[data-trace-layout]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.traceLayout === state.traceLayout);
+  });
+  els.traceControls.querySelectorAll('[data-trace-expansion]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.traceExpansion === state.traceExpansion);
+  });
+}
+
+function setTraceLayout(layout) {
+  if (layout !== 'compact' && layout !== 'wide') return;
+  state.traceLayout = layout;
+  render();
+}
+
+function setTraceExpansion(expansion) {
+  if (expansion !== 'collapsed' && expansion !== 'expanded') return;
+  state.traceExpansion = expansion;
+  state.traceOpen = new Set();
+  state.traceClosed = new Set();
+  render();
+}
+
+function renderTrace(trace) {
+  traceCopyValues.clear();
+  updateTraceControls();
+  const items = filteredTraceItems(trace);
+  const tools = trace.stats ? trace.stats.toolCalls : 0;
+  const headerMeta = [];
+  if (trace.cwd) headerMeta.push(`<span title="Working directory">⌂ ${escapeHtml(trace.cwd)}</span>`);
+  if (trace.id) headerMeta.push(`<span title="Session id">ID ${escapeHtml(trace.id)}</span>`);
+  headerMeta.push(`<span>${items.length} items</span>`);
+  if (tools) headerMeta.push(`<span>${tools} tool call${tools === 1 ? '' : 's'}</span>`);
+  const cards = items.map(renderTraceItem).join('');
+  els.viewPane.innerHTML = `<div class="trace-view trace-${escapeHtml(state.traceLayout)}">
+    <div class="trace-header-card">
+      <div class="trace-header-title"><span class="trace-agent-glyph">◉</span><strong>${escapeHtml(trace.title || `${trace.label} trace`)}</strong><span class="trace-format-badge">${escapeHtml(trace.label || trace.format)}</span></div>
+      <div class="trace-header-meta">${headerMeta.join(' · ')}</div>
+    </div>
+    <div class="trace-timeline">${cards || '<div class="trace-no-results">No trace items match the current filter.</div>'}</div>
+  </div>`;
+
+  els.viewPane.querySelectorAll('.trace-disclosure').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const scrollTop = els.viewPane.scrollTop;
+      toggleTraceDisclosure(button.dataset.traceDisclosure);
+      render();
+      els.viewPane.scrollTop = scrollTop;
+    });
+  });
+  els.viewPane.querySelectorAll('.trace-copy-button').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const value = traceCopyValues.get(button.dataset.traceCopy);
+      if (value == null) return;
+      copyText(value);
+      const original = button.textContent;
+      button.textContent = '✓';
+      setTimeout(() => { button.textContent = original; }, 900);
+    });
+  });
+  els.viewPane.querySelectorAll('.trace-entry[data-idx]').forEach((entry) => {
+    entry.addEventListener('click', () => selectRow(Number(entry.dataset.idx)));
   });
 }
 
@@ -761,6 +1321,9 @@ function applyLoadedData(data, { preserveView = false } = {}) {
   const prevSelected = state.selectedIndex;
   const prevExpanded = state.expanded;
   const prevTreeExpanded = state.treeExpanded;
+  const detectedTrace = window.traceParser && window.traceParser.parse
+    ? window.traceParser.parse(data.parsedLines, data.path)
+    : null;
 
   state.filePath = data.path;
   state.fileName = data.name;
@@ -769,6 +1332,7 @@ function applyLoadedData(data, { preserveView = false } = {}) {
   state.parsedLines = data.parsedLines;
   state.errors = data.errors;
   state.truncated = data.truncated;
+  state.trace = detectedTrace;
 
   if (!preserveView) {
     state.expanded = new Set();
@@ -777,6 +1341,17 @@ function applyLoadedData(data, { preserveView = false } = {}) {
     state.filter = '';
     els.search.value = '';
     els.sidebar.hidden = true;
+    state.traceOpen = new Set();
+    state.traceClosed = new Set();
+    if (state.trace) {
+      state.view = 'trace';
+      state.editMode = false;
+      document.body.classList.remove('edit-mode');
+      els.editToggle.textContent = 'Edit: off';
+      els.editToggle.classList.remove('active');
+    } else if (state.view === 'trace') {
+      state.view = 'table';
+    }
   } else {
     const validIndexes = new Set(data.parsedLines.map((l) => l.index));
     if (prevSelected != null && !validIndexes.has(prevSelected)) {
@@ -787,6 +1362,7 @@ function applyLoadedData(data, { preserveView = false } = {}) {
       const root = Number(String(p).split('>')[0]);
       return validIndexes.has(root);
     }));
+    if (!state.trace && state.view === 'trace') state.view = 'table';
   }
 
   recomputeAllKeys();
@@ -810,7 +1386,12 @@ function saveCurrentSession() {
     parsedLines: state.parsedLines,
     errors: state.errors,
     truncated: state.truncated,
+    trace: state.trace,
     view: state.view,
+    traceLayout: state.traceLayout,
+    traceExpansion: state.traceExpansion,
+    traceOpen: new Set(state.traceOpen),
+    traceClosed: new Set(state.traceClosed),
     filter: state.filter,
     expanded: new Set(state.expanded),
     treeExpanded: new Set(state.treeExpanded),
@@ -831,7 +1412,14 @@ function restoreSession(sess) {
   state.parsedLines = sess.parsedLines;
   state.errors = sess.errors;
   state.truncated = sess.truncated;
-  state.view = sess.view;
+  state.trace = sess.trace || (window.traceParser && window.traceParser.parse
+    ? window.traceParser.parse(sess.parsedLines, sess.filePath)
+    : null);
+  state.view = sess.view === 'trace' && !state.trace ? 'table' : sess.view;
+  state.traceLayout = sess.traceLayout || 'compact';
+  state.traceExpansion = sess.traceExpansion || 'expanded';
+  state.traceOpen = new Set(sess.traceOpen || []);
+  state.traceClosed = new Set(sess.traceClosed || []);
   state.filter = sess.filter;
   state.expanded = new Set(sess.expanded);
   state.treeExpanded = new Set(sess.treeExpanded);
@@ -843,7 +1431,7 @@ function restoreSession(sess) {
   els.editToggle.textContent = 'Edit: ' + (state.editMode ? 'on' : 'off');
   els.editToggle.classList.toggle('active', state.editMode);
   els.search.value = sess.filter || '';
-  const radio = document.querySelector(`input[name="view"][value="${sess.view}"]`);
+  const radio = document.querySelector(`input[name="view"][value="${state.view}"]`);
   if (radio) radio.checked = true;
   explorer.activePath = sess.filePath;
   setFileInfo(`${sess.fileName} · ${formatBytes(sess.sizeBytes)} · ${sess.totalLines} lines`);
@@ -869,6 +1457,7 @@ function clearActiveFile() {
   state.parsedLines = [];
   state.errors = [];
   state.truncated = false;
+  state.trace = null;
   state.expanded = new Set();
   state.treeExpanded = new Set();
   state.selectedIndex = null;
@@ -909,20 +1498,22 @@ async function revealInExplorer(filePath) {
   }
 }
 
-async function loadFileFromDisk(filePath) {
+async function loadFileFromDisk(filePath, { openParentFolder = true } = {}) {
   setFileInfo('Loading…');
   const data = await window.api.readFile(filePath, state.maxLines);
   applyLoadedData(data, { preserveView: false });
-  if (!explorer.folder && !explorer.autoFolderDisabled) {
+  if (!explorer.folder && openParentFolder && !explorer.autoFolderDisabled) {
     await openExplorerFolder(parentDir(data.path), { persist: true });
-  } else {
+  } else if (explorer.folder) {
     await revealInExplorer(data.path);
+    renderExplorer();
+  } else {
     renderExplorer();
   }
   return data;
 }
 
-async function openFile(filePath) {
+async function openFile(filePath, { openParentFolder = true } = {}) {
   if (!filePath) {
     filePath = await window.api.openFile();
     if (!filePath) return;
@@ -944,7 +1535,7 @@ async function openFile(filePath) {
     return;
   }
   try {
-    const data = await loadFileFromDisk(filePath);
+    const data = await loadFileFromDisk(filePath, { openParentFolder });
     console.log(`[jsonl-viewer] loaded ${data.name}: ${data.parsedLines.length} parsed, ${data.errors.length} errors, ${data.totalLines} total`);
   } catch (err) {
     setFileInfo('Error: ' + err.message);
@@ -1013,6 +1604,7 @@ async function loadMore() {
   const count = 5000;
   const data = await window.api.readRange(state.filePath, start, count);
   state.parsedLines.push(...data.lines);
+  recomputeTrace();
   recomputeAllKeys();
   // recompute truncated flag: if we got fewer than requested and we've reached end, not truncated
   if (data.lines.length < count) state.truncated = false;
@@ -1380,6 +1972,10 @@ function setupExplorerResizer() {
   if (els.explorerRefresh) els.explorerRefresh.addEventListener('click', refreshExplorerFolder);
   if (els.explorerCloseFolder) els.explorerCloseFolder.addEventListener('click', closeExplorerFolder);
   if (els.emptyOpenFile) els.emptyOpenFile.addEventListener('click', () => openFile(null));
+  if (els.emptyTraceSources) els.emptyTraceSources.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openTraceSourcesMenu();
+  });
   if (els.emptyOpenFolder) els.emptyOpenFolder.addEventListener('click', () => openExplorerFolder(null));
   setupExplorerResizer();
   renderExplorer();
@@ -1394,10 +1990,22 @@ els.themeBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   toggleThemeMenu();
 });
+if (els.traceSourcesBtn) {
+  els.traceSourcesBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openTraceSourcesMenu();
+  });
+}
 els.editToggle.addEventListener('click', () => setEditMode(!state.editMode));
 els.saveBtn.addEventListener('click', saveFile);
 els.treeExpandAll.addEventListener('click', expandAllTree);
 els.treeCollapseAll.addEventListener('click', collapseAllTree);
+els.traceControls.querySelectorAll('[data-trace-layout]').forEach((button) => {
+  button.addEventListener('click', () => setTraceLayout(button.dataset.traceLayout));
+});
+els.traceControls.querySelectorAll('[data-trace-expansion]').forEach((button) => {
+  button.addEventListener('click', () => setTraceExpansion(button.dataset.traceExpansion));
+});
 
 // Close the theme menu when clicking outside it or pressing Escape
 document.addEventListener('click', (e) => {
@@ -1408,6 +2016,17 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !els.themeMenu.hidden) closeThemeMenu();
+});
+
+// Close the trace source menu when clicking outside it or pressing Escape.
+document.addEventListener('click', (e) => {
+  if (!els.traceSourcesMenu || els.traceSourcesMenu.hidden) return;
+  if (!els.traceSourcesMenu.contains(e.target) && e.target !== els.traceSourcesBtn && !els.traceSourcesBtn.contains(e.target)) {
+    closeTraceSourcesMenu();
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && els.traceSourcesMenu && !els.traceSourcesMenu.hidden) closeTraceSourcesMenu();
 });
 
 // ---- Column visibility popover ----
@@ -1653,6 +2272,7 @@ if (window.api.onMenu) {
     switch (action) {
       case 'open': openFile(null); break;
       case 'open-folder': openExplorerFolder(null); break;
+      case 'trace-sources': openTraceSourcesMenu(); break;
       case 'close-folder': closeExplorerFolder(); break;
       case 'close-file': if (state.filePath) closeFile(state.filePath); break;
       case 'toggle-explorer': toggleExplorer(); break;
@@ -1690,7 +2310,11 @@ function copySelectedRow(kind) {
 }
 
 function setView(v) {
-  if (v !== 'table' && v !== 'tree' && v !== 'raw') return;
+  if (v !== 'table' && v !== 'tree' && v !== 'raw' && v !== 'trace') return;
+  if (v === 'trace') {
+    recomputeTrace();
+    if (!state.trace) return;
+  }
   state.view = v;
   const radio = document.querySelector(`input[name="view"][value="${v}"]`);
   if (radio) radio.checked = true;

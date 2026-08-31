@@ -3,10 +3,35 @@ const path = require('path');
 const fs = require('fs');
 
 const DATA_EXTS = ['.jsonl', '.ndjson', '.json', '.log', '.txt'];
+const TRACE_FILE_EXTS = ['.jsonl', '.ndjson'];
 const SKIP_DIRS = new Set([
   'node_modules', '.git', '.hg', '.svn', '.next', '.cache',
   'dist', 'build', 'coverage', '__pycache__'
 ]);
+const TRACE_SCAN_MAX_DEPTH = 8;
+const TRACE_FILE_LIMIT = 3;
+const TRACE_LOCATIONS = Object.freeze({
+  codex: {
+    label: 'Codex',
+    relativePaths: [path.join('.codex', 'sessions')]
+  },
+  claude: {
+    label: 'Claude Code',
+    relativePaths: [path.join('.claude', 'projects')]
+  },
+  pi: {
+    label: 'Pi',
+    relativePaths: [path.join('.pi', 'agent', 'sessions')]
+  },
+  hermes: {
+    label: 'Hermes',
+    relativePaths: [
+      path.join('.hermes', 'session-exports', 'traces'),
+      path.join('.hermes', 'sessions')
+    ],
+    emptyNote: 'Current Hermes sessions also live in ~/.hermes/state.db. Export one with: hermes sessions export backup.jsonl'
+  }
+});
 
 let mainWindow;
 let recentFiles = [];
@@ -308,6 +333,7 @@ function buildMenu() {
       submenu: [
         { label: 'Open File…', accelerator: 'CmdOrCtrl+O', click: () => send('menu:open') },
         { label: 'Open Folder…', accelerator: 'CmdOrCtrl+Shift+O', click: () => send('menu:open-folder') },
+        { label: 'Open Trace Sources…', click: () => send('menu:trace-sources') },
         { label: 'Close Folder', click: () => send('menu:close-folder') },
         { label: 'Open Recent', submenu: recentTemplate },
         { type: 'separator' },
@@ -337,6 +363,7 @@ function buildMenu() {
         { label: 'Table', click: () => send('menu:view', 'table') },
         { label: 'Tree', click: () => send('menu:view', 'tree') },
         { label: 'Raw', click: () => send('menu:view', 'raw') },
+        { label: 'Traces', click: () => send('menu:view', 'trace') },
         { type: 'separator' },
         { label: 'Toggle Explorer', accelerator: 'CmdOrCtrl+B', click: () => send('menu:toggle-explorer') },
         { type: 'separator' },
@@ -452,6 +479,90 @@ ipcMain.handle('dir:list', async (_e, dirPath) => {
   } catch (err) {
     return { path: dirPath, entries: [], error: err.message };
   }
+});
+
+function traceLocationInfo(key) {
+  const config = TRACE_LOCATIONS[key];
+  if (!config) return null;
+  const home = app.getPath('home');
+  return {
+    key,
+    label: config.label,
+    emptyNote: config.emptyNote || null,
+    roots: config.relativePaths.map((relativePath) => ({
+      path: path.join(home, relativePath),
+      displayPath: '~/' + relativePath.split(path.sep).join('/')
+    }))
+  };
+}
+
+function isTraceFileName(name) {
+  const lower = String(name || '').toLowerCase();
+  return TRACE_FILE_EXTS.some((ext) => lower.endsWith(ext));
+}
+
+async function scanTraceFiles(dirPath, rootPath, rootDisplayPath, depth, files) {
+  if (depth > TRACE_SCAN_MAX_DEPTH) return;
+  let entries;
+  try {
+    entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    const name = entry.name;
+    if (!name || name === '.' || name === '..') continue;
+    if (name.startsWith('.') || SKIP_DIRS.has(name)) continue;
+    if (name === 'Thumbs.db' || name === 'desktop.ini') continue;
+    const fullPath = path.join(dirPath, name);
+    if (entry.isDirectory()) {
+      await scanTraceFiles(fullPath, rootPath, rootDisplayPath, depth + 1, files);
+      continue;
+    }
+    if (!entry.isFile() || !isTraceFileName(name)) continue;
+    let stat;
+    try { stat = await fs.promises.stat(fullPath); } catch { continue; }
+    const relativePath = path.relative(rootPath, fullPath).split(path.sep).join('/');
+    files.push({
+      name,
+      path: fullPath,
+      displayPath: rootDisplayPath + '/' + relativePath,
+      size: stat.size,
+      mtimeMs: stat.mtimeMs
+    });
+  }
+}
+
+ipcMain.handle('trace:list', async (_e, key) => {
+  const info = traceLocationInfo(key);
+  if (!info) return { key, label: key, roots: [], files: [], error: 'Unknown trace source' };
+
+  const files = [];
+  const roots = [];
+  for (const root of info.roots) {
+    let exists = false;
+    try {
+      const stat = await fs.promises.stat(root.path);
+      exists = stat.isDirectory();
+    } catch {}
+    roots.push({ ...root, exists });
+    if (exists) await scanTraceFiles(root.path, root.path, root.displayPath, 0, files);
+  }
+
+  const uniqueFiles = Array.from(new Map(files.map((file) => [file.path, file])).values());
+  uniqueFiles.sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path));
+  const openRoot = roots.find((root) => root.exists) || roots[0] || null;
+  return {
+    key: info.key,
+    label: info.label,
+    emptyNote: info.emptyNote,
+    roots,
+    openPath: openRoot && openRoot.path,
+    exists: roots.some((root) => root.exists),
+    totalFiles: uniqueFiles.length,
+    files: uniqueFiles.slice(0, TRACE_FILE_LIMIT)
+  };
 });
 
 ipcMain.handle('shell:showItem', async (_e, filePath) => {
