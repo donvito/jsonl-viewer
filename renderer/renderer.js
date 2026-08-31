@@ -61,6 +61,7 @@ const $ = (sel) => document.querySelector(sel);
 
 const els = {
   workspace: $('#workspace'),
+  fileTabs: $('#fileTabs'),
   explorer: $('#explorer'),
   explorerShow: $('#explorerShow'),
   explorerOpenFile: $('#explorerOpenFile'),
@@ -1962,6 +1963,7 @@ async function toggleExplorerDir(dirPath) {
 }
 
 function renderExplorer() {
+  renderFileTabs();
   if (!els.explorerTree) return;
   if (els.explorerFolderLabel) {
     els.explorerFolderLabel.textContent = explorer.folder ? explorer.folderName : 'No folder';
@@ -2014,7 +2016,7 @@ function renderExplorer() {
   if (!explorer.folder) {
     const empty = document.createElement('div');
     empty.className = 'explorer-empty';
-    empty.textContent = 'No folder open. Choose Open Folder above to browse .jsonl and .ndjson files.';
+    empty.textContent = 'No folder open. Choose Folder above to browse .jsonl and .ndjson files.';
     els.explorerTree.appendChild(empty);
     return;
   }
@@ -2029,6 +2031,67 @@ function renderExplorer() {
     return;
   }
   for (const entry of roots) appendExplorerNode(els.explorerTree, entry, 0);
+}
+
+function renderFileTabs() {
+  if (!els.fileTabs) return;
+  els.fileTabs.hidden = explorer.openFiles.length === 0;
+  els.fileTabs.innerHTML = '';
+  for (const file of explorer.openFiles) {
+    const active = samePath(file.path, explorer.activePath);
+    const tab = document.createElement('div');
+    tab.className = 'file-tab' + (active ? ' active' : '');
+    tab.dataset.path = file.path;
+    tab.title = file.path;
+    tab.setAttribute('role', 'tab');
+    tab.setAttribute('aria-selected', String(active));
+    tab.tabIndex = active ? 0 : -1;
+
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('class', 'file-tab-icon');
+    icon.setAttribute('viewBox', '0 0 16 16');
+    icon.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M3 1.5h6l4 4v9H3zM9 1.5v4h4');
+    icon.appendChild(path);
+    tab.appendChild(icon);
+
+    const name = document.createElement('span');
+    name.className = 'file-tab-name';
+    name.textContent = file.name;
+    tab.appendChild(name);
+
+    if (file.dirty) {
+      const dirty = document.createElement('span');
+      dirty.className = 'file-tab-dirty';
+      dirty.title = 'Unsaved changes';
+      tab.appendChild(dirty);
+    }
+
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'file-tab-close';
+    close.textContent = '×';
+    close.title = `Close ${file.name}`;
+    close.setAttribute('aria-label', `Close ${file.name}`);
+    close.addEventListener('click', (event) => {
+      event.stopPropagation();
+      closeFile(file.path);
+    });
+    tab.appendChild(close);
+
+    const activate = () => openFile(file.path);
+    tab.addEventListener('click', activate);
+    tab.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        activate();
+      }
+    });
+    els.fileTabs.appendChild(tab);
+  }
+  const activeTab = els.fileTabs.querySelector('.file-tab.active');
+  if (activeTab) requestAnimationFrame(() => activeTab.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
 }
 
 function appendExplorerNode(parent, entry, depth) {

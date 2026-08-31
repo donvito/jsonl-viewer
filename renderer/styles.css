@@ -242,6 +242,22 @@ html, body {
 .btn:hover { background: var(--btn-hover); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn.hidden-slot { visibility: hidden; }
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+.cta-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .btn.primary {
   background: var(--accent);
   color: var(--primary-fg);
@@ -455,6 +471,97 @@ html, body {
   flex-direction: column;
 }
 
+/* Open files — editor-style tab strip */
+.file-tabs {
+  flex: 0 0 34px;
+  min-width: 0;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+.file-tab {
+  position: relative;
+  min-width: 110px;
+  max-width: 220px;
+  height: 34px;
+  padding: 0 7px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  background: var(--bg-soft);
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 11px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.file-tab::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: transparent;
+}
+.file-tab:hover { color: var(--text); background: var(--btn-hover); }
+.file-tab.active {
+  color: var(--text);
+  background: var(--bg);
+}
+.file-tab.active::before { background: var(--accent); }
+.file-tab-icon {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.file-tab-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-tab-dirty {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.file-tab-close {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  visibility: hidden;
+  color: var(--text-faint);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.file-tab:hover .file-tab-close,
+.file-tab.active .file-tab-close { visibility: visible; }
+.file-tab-close:hover { color: var(--text); background: var(--bg-elev); }
+.file-tab:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+
 /* Left file explorer */
 .explorer {
   position: relative;
@@ -513,6 +620,10 @@ html, body {
   height: 28px;
   padding: 0 5px;
   overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   background: var(--bg-elev);
   color: var(--text-dim);
   border: 1px solid var(--border);

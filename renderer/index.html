@@ -41,9 +41,15 @@
         <span class="explorer-title">Explorer</span>
       </div>
       <div class="explorer-actions" aria-label="Open data">
-        <button id="explorerOpenFile" class="explorer-action-btn" type="button" title="Choose a JSONL file to open">Open File</button>
-        <button id="explorerOpenFolder" class="explorer-action-btn" type="button" title="Choose a folder to browse">Open Folder</button>
-        <button id="explorerOpenTraces" class="explorer-action-btn" type="button" title="Open a trace from Codex, Claude Code, Pi, or Hermes">Open Traces</button>
+        <button id="explorerOpenFile" class="explorer-action-btn" type="button" title="Choose a JSONL file to open" aria-label="Open file">
+          <svg class="cta-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.5h6l4 4v9H3zM9 1.5v4h4" /></svg><span>File</span>
+        </button>
+        <button id="explorerOpenFolder" class="explorer-action-btn" type="button" title="Choose a folder to browse" aria-label="Open folder">
+          <svg class="cta-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4h5l1.5 2h6.5v7.5h-13z" /></svg><span>Folder</span>
+        </button>
+        <button id="explorerOpenTraces" class="explorer-action-btn" type="button" title="Open a trace from Codex, Claude Code, Pi, or Hermes" aria-label="Open traces">
+          <svg class="cta-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="3" r="1.5" /><circle cx="12" cy="8" r="1.5" /><circle cx="4" cy="13" r="1.5" /><path d="M5.5 3c3.5 0 1.5 5 5 5M5.5 13c3.5 0 1.5-5 5-5" /></svg><span>Traces</span>
+        </button>
       </div>
       <div id="explorerOpenSection" class="explorer-section" hidden>
         <div class="explorer-section-label">Open files</div>
@@ -61,6 +67,7 @@
       <button id="explorerHide" class="explorer-edge-toggle explorer-hide" type="button" title="Hide file explorer (Cmd/Ctrl+B)" aria-label="Hide file explorer">‹</button>
     </aside>
     <div class="main-col">
+    <div id="fileTabs" class="file-tabs" role="tablist" aria-label="Open files" hidden></div>
     <section class="controls" id="controls" hidden>
       <div class="search-wrap">
         <input id="search" type="search" placeholder="Filter rows by text (searches raw JSON)…" />
@@ -98,9 +105,15 @@
         <h2>Open a JSONL file to begin</h2>
         <p>Browse the explorer, drag a file onto this window, or use the buttons below.</p>
         <div class="empty-actions">
-          <button id="emptyOpenFile" class="btn">Open File</button>
-          <button id="emptyTraceSources" class="btn">Open Traces</button>
-          <button id="emptyOpenFolder" class="btn primary">Open Folder</button>
+          <button id="emptyOpenFile" class="btn action-btn" aria-label="Open file">
+            <svg class="cta-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.5h6l4 4v9H3zM9 1.5v4h4" /></svg><span>File</span>
+          </button>
+          <button id="emptyOpenFolder" class="btn action-btn primary" aria-label="Open folder">
+            <svg class="cta-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4h5l1.5 2h6.5v7.5h-13z" /></svg><span>Folder</span>
+          </button>
+          <button id="emptyTraceSources" class="btn action-btn" aria-label="Open traces">
+            <svg class="cta-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="3" r="1.5" /><circle cx="12" cy="8" r="1.5" /><circle cx="4" cy="13" r="1.5" /><path d="M5.5 3c3.5 0 1.5 5 5 5M5.5 13c3.5 0 1.5-5 5-5" /></svg><span>Traces</span>
+          </button>
         </div>
         <p class="hint">Each line is parsed as a separate JSON object.</p>
       </div>

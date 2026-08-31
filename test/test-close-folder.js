@@ -93,7 +93,7 @@ async function runTests() {
       emptyText: document.querySelector('#explorerTree .explorer-empty').textContent
     };
   })()`);
-  assert(actions.labels.join('|') === 'Open File|Open Folder|Open Traces',
+  assert(actions.labels.join('|') === 'File|Folder|Traces',
     `explorer has one clear action row (got ${actions.labels.join(', ')})`);
   assert(actions.duplicateFolderCta === false, 'no duplicate Open Folder CTA in the empty state');
   assert(/^No folder open\./.test(actions.emptyText), 'empty state is informational');
@@ -128,6 +128,8 @@ async function runTests() {
         rows: state.parsedLines.length,
         openCount: explorer.openFiles.length,
         openSectionHidden: document.getElementById('explorerOpenSection').hidden,
+        tabCount: document.querySelectorAll('#fileTabs .file-tab').length,
+        activeTab: document.querySelector('#fileTabs .file-tab.active .file-tab-name')?.textContent,
         bodyRows: document.querySelectorAll('#viewPane tbody tr').length
       };
     })()
@@ -136,6 +138,8 @@ async function runTests() {
   assert(withFile.rows === 2, `2 rows parsed (got ${withFile.rows})`);
   assert(withFile.openCount === 1, `1 entry in Open files (got ${withFile.openCount})`);
   assert(withFile.openSectionHidden === false, 'Open files section visible');
+  assert(withFile.tabCount === 1, 'one file tab is visible');
+  assert(withFile.activeTab === 'alpha.jsonl', 'opened file tab is active');
 
   console.log('\nHide and restore the explorer after opening a file:');
   const hidden = await js(`
@@ -228,7 +232,9 @@ async function runTests() {
         folder: explorer.folder,
         stored: localStorage.getItem('jsonl-viewer:folder'),
         openCount: explorer.openFiles.length,
-        filePath: state.filePath
+        filePath: state.filePath,
+        tabCount: document.querySelectorAll('#fileTabs .file-tab').length,
+        activeTab: document.querySelector('#fileTabs .file-tab.active .file-tab-name')?.textContent
       };
     })()
   `);
@@ -236,6 +242,8 @@ async function runTests() {
   assert(after.stored === null, 'no folder re-persisted to localStorage');
   assert(after.filePath === fileB, 'the newly opened file is active');
   assert(after.openCount === 2, `both files listed as open (got ${after.openCount})`);
+  assert(after.tabCount === 2, 'both open files have tabs');
+  assert(after.activeTab === 'beta.jsonl', 'newly opened file tab is active');
 
   console.log('\nReopening a folder re-enables the tree:');
   const reopened = await js(`
