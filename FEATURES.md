@@ -16,6 +16,7 @@
 - **Native menus** — File menu (Open File, Open Recent submenu with Clear History, Save, Save As), Edit menu (Copy / Copy JSON / Copy raw of the selected row), View menu (switch views, theme submenu, cycle theme, dev tools).
 - **Open recent** — the File → Open Recent submenu lists recently opened files (persisted via `localStorage`); click one to reopen, or **Clear Recent History** to wipe the list.
 - **Themes** — a theme picker in the toolbar (and a View → Theme submenu / `Cmd/Ctrl+Shift+T` cycle shortcut) let you choose between Mocha, Tokyo Night, Dracula, Gruvbox Dark, Solarized Dark, GitHub Dark, One Dark, Latte, Solarized Light, and GitHub Light. Each theme recolors both the app chrome and the JSON syntax highlighting; the preference is remembered via `localStorage`.
+- **Zoom controls** — use the toolbar’s `−` / percentage / `+` controls, or View → Zoom In/Out/Reset, to scale the complete viewer from 80% to 150%; the setting persists across launches.
 - **Parse-error tolerance** — invalid lines are flagged inline with the error message rather than breaking the whole view.
 - **File associations** — installing registers `.jsonl` and `.ndjson`, so double-clicking one of those files opens it in the app.
 - macOS-style hidden inset title bar with a draggable toolbar.

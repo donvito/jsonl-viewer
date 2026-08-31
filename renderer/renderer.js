@@ -13,6 +13,7 @@ const state = {
   traceExpansion: 'expanded',
   traceOpen: new Set(),
   traceClosed: new Set(),
+  zoom: 1,
   filter: '',
   expanded: new Set(),
   treeExpanded: new Set(),
@@ -101,12 +102,81 @@ const els = {
   treeCollapseAll: $('#treeCollapseAll'),
   emptyState: $('#emptyState'),
   emptyTraceSources: $('#emptyTraceSources'),
+  zoomOutBtn: $('#zoomOutBtn'),
+  zoomResetBtn: $('#zoomResetBtn'),
+  zoomInBtn: $('#zoomInBtn'),
   dropOverlay: $('#dropOverlay'),
   ctxMenu: $('#ctxMenu')
 };
 
 const COL_DEFAULTS = { line: 60, actions: 44, __value: 220 };
 const COL_MIN = 50;
+const ZOOM_LEVELS = [0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5];
+
+function zoomIndex(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return ZOOM_LEVELS.indexOf(1);
+  let best = 0;
+  let distance = Infinity;
+  ZOOM_LEVELS.forEach((level, index) => {
+    const nextDistance = Math.abs(level - n);
+    if (nextDistance < distance) {
+      best = index;
+      distance = nextDistance;
+    }
+  });
+  return best;
+}
+
+function persistZoom() {
+  try { localStorage.setItem('jsonl-viewer:zoom', String(state.zoom)); } catch (e) {}
+}
+
+function updateZoomControls() {
+  const index = zoomIndex(state.zoom);
+  const label = `${Math.round(state.zoom * 100)}%`;
+  if (els.zoomOutBtn) els.zoomOutBtn.disabled = index <= 0;
+  if (els.zoomInBtn) els.zoomInBtn.disabled = index >= ZOOM_LEVELS.length - 1;
+  if (els.zoomResetBtn) {
+    els.zoomResetBtn.textContent = label;
+    els.zoomResetBtn.title = state.zoom === 1 ? 'Zoom (100%)' : 'Reset zoom to 100%';
+    els.zoomResetBtn.setAttribute('aria-label', state.zoom === 1 ? 'Zoom, 100 percent' : `Reset zoom to 100 percent (currently ${label})`);
+  }
+}
+
+function setZoom(value, { persist = true } = {}) {
+  const next = ZOOM_LEVELS[zoomIndex(value)];
+  const pane = els.viewPane;
+  const scrollTop = pane ? pane.scrollTop : 0;
+  const scrollLeft = pane ? pane.scrollLeft : 0;
+  state.zoom = next;
+  try {
+    if (window.api && window.api.setZoomFactor) window.api.setZoomFactor(next);
+    else document.documentElement.style.zoom = String(next);
+  } catch (e) {}
+  if (persist) persistZoom();
+  updateZoomControls();
+  if (pane) {
+    requestAnimationFrame(() => {
+      pane.scrollTop = scrollTop;
+      pane.scrollLeft = scrollLeft;
+    });
+  }
+}
+
+function changeZoom(direction) {
+  const index = zoomIndex(state.zoom);
+  setZoom(ZOOM_LEVELS[Math.max(0, Math.min(ZOOM_LEVELS.length - 1, index + direction))]);
+}
+
+(function initZoom() {
+  let saved = null;
+  try {
+    const raw = localStorage.getItem('jsonl-viewer:zoom');
+    if (raw !== null) saved = Number(raw);
+  } catch (e) {}
+  setZoom(Number.isFinite(saved) ? saved : 1, { persist: false });
+})();
 
 function colWidth(id) {
   return state.columnWidths[id] || COL_DEFAULTS[id] || COL_DEFAULTS.__value;
@@ -174,14 +244,6 @@ function samePath(a, b) {
 
 function fileName(p) {
   return String(p || '').split(/[\\/]/).pop() || String(p || '');
-}
-
-function parentDir(p) {
-  const s = String(p || '');
-  const i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
-  if (i <= 0) return s;
-  if (s[i - 1] === ':') return s.slice(0, i + 1);
-  return s.slice(0, i);
 }
 
 function findOpen(filePath) {
@@ -433,7 +495,7 @@ async function loadTraceSources() {
 async function openTraceSourceFile(token) {
   const filePath = traceSourceFileValues.get(token);
   closeTraceSourcesMenu();
-  if (filePath) await openFile(filePath, { openParentFolder: false });
+  if (filePath) await openFile(filePath);
 }
 
 async function openTraceSourceFolder(key) {
@@ -1498,22 +1560,18 @@ async function revealInExplorer(filePath) {
   }
 }
 
-async function loadFileFromDisk(filePath, { openParentFolder = true } = {}) {
+async function loadFileFromDisk(filePath) {
   setFileInfo('Loading…');
   const data = await window.api.readFile(filePath, state.maxLines);
   applyLoadedData(data, { preserveView: false });
-  if (!explorer.folder && openParentFolder && !explorer.autoFolderDisabled) {
-    await openExplorerFolder(parentDir(data.path), { persist: true });
-  } else if (explorer.folder) {
+  if (explorer.folder) {
     await revealInExplorer(data.path);
-    renderExplorer();
-  } else {
-    renderExplorer();
   }
+  renderExplorer();
   return data;
 }
 
-async function openFile(filePath, { openParentFolder = true } = {}) {
+async function openFile(filePath) {
   if (!filePath) {
     filePath = await window.api.openFile();
     if (!filePath) return;
@@ -1535,7 +1593,7 @@ async function openFile(filePath, { openParentFolder = true } = {}) {
     return;
   }
   try {
-    const data = await loadFileFromDisk(filePath, { openParentFolder });
+    const data = await loadFileFromDisk(filePath);
     console.log(`[jsonl-viewer] loaded ${data.name}: ${data.parsedLines.length} parsed, ${data.errors.length} errors, ${data.totalLines} total`);
   } catch (err) {
     setFileInfo('Error: ' + err.message);
@@ -1990,6 +2048,9 @@ els.themeBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   toggleThemeMenu();
 });
+if (els.zoomOutBtn) els.zoomOutBtn.addEventListener('click', () => changeZoom(-1));
+if (els.zoomResetBtn) els.zoomResetBtn.addEventListener('click', () => setZoom(1));
+if (els.zoomInBtn) els.zoomInBtn.addEventListener('click', () => changeZoom(1));
 if (els.traceSourcesBtn) {
   els.traceSourcesBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -2284,6 +2345,9 @@ if (window.api.onMenu) {
       case 'view': setView(arg); break;
       case 'theme': setTheme(arg); break;
       case 'cycle-theme': toggleTheme(); break;
+      case 'zoom-in': changeZoom(1); break;
+      case 'zoom-out': changeZoom(-1); break;
+      case 'zoom-reset': setZoom(1); break;
       case 'clear-recent':
         state.recent = [];
         persistRecent();

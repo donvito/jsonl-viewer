@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer, webUtils } = require('electron');
+const { contextBridge, ipcRenderer, webUtils, webFrame } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   openFile: () => ipcRenderer.invoke('dialog:openFile'),
@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('api', {
   updateRecent: (list) => ipcRenderer.invoke('recent:update', list),
   setThemeList: (list) => ipcRenderer.invoke('theme:list', list),
   updateTheme: (key) => ipcRenderer.invoke('theme:current', key),
+  setZoomFactor: (factor) => webFrame.setZoomFactor(factor),
   onAutoOpen: (cb) => ipcRenderer.on('auto-open', (_e, filePath) => cb(filePath)),
   onFileChanged: (cb) => ipcRenderer.on('file:changed', (_e, info) => cb(info)),
   onMenu: (cb) => ipcRenderer.on('menu:open', () => cb('open'))
@@ -40,5 +41,8 @@ contextBridge.exposeInMainWorld('api', {
     .on('menu:view', (_e, v) => cb('view', v))
     .on('menu:theme', (_e, k) => cb('theme', k))
     .on('menu:cycle-theme', () => cb('cycle-theme'))
+    .on('menu:zoom-in', () => cb('zoom-in'))
+    .on('menu:zoom-out', () => cb('zoom-out'))
+    .on('menu:zoom-reset', () => cb('zoom-reset'))
     .on('menu:clear-recent', () => cb('clear-recent'))
 });

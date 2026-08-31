@@ -367,6 +367,10 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Toggle Explorer', accelerator: 'CmdOrCtrl+B', click: () => send('menu:toggle-explorer') },
         { type: 'separator' },
+        { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: () => send('menu:zoom-in') },
+        { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => send('menu:zoom-out') },
+        { label: 'Reset Zoom', accelerator: 'CmdOrCtrl+0', click: () => send('menu:zoom-reset') },
+        { type: 'separator' },
         { label: 'Theme', submenu: themeSubmenu() },
         { label: 'Cycle Theme', accelerator: 'CmdOrCtrl+Shift+T', click: () => send('menu:cycle-theme') }
       ]
