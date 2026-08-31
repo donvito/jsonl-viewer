@@ -105,12 +105,12 @@ app.whenReady().then(() => {
     height: 800,
     show: false,
     webPreferences: {
-      preload: path.join(__dirname, 'src', 'preload.js'),
+      preload: path.join(__dirname, '..', 'src', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false
     }
   });
-  win.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'))
     .then(() => new Promise((r) => setTimeout(r, 300)))
     .then(captureShots)
     .catch((err) => {

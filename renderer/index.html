@@ -16,11 +16,6 @@
         <span class="title">JSONL Viewer</span>
       </div>
       <div class="toolbar-actions">
-        <button id="explorerToggle" class="btn" title="Toggle file explorer">Files</button>
-        <div class="trace-sources-picker">
-          <button id="traceSourcesBtn" class="btn trace-sources-btn" title="Open a trace from Codex, Claude Code, Pi, or Hermes" aria-haspopup="true" aria-expanded="false">Traces</button>
-          <div id="traceSourcesMenu" class="trace-sources-menu" hidden></div>
-        </div>
         <button id="loadMoreBtn" class="btn" disabled>Load more</button>
         <div class="theme-picker">
           <button id="themeBtn" class="theme-btn" title="Choose theme" aria-haspopup="true" aria-expanded="false">
@@ -40,12 +35,15 @@
     </header>
 
     <div id="workspace" class="workspace">
+    <button id="explorerShow" class="explorer-edge-toggle explorer-show" type="button" title="Show file explorer (Cmd/Ctrl+B)" aria-label="Show file explorer">›</button>
     <aside id="explorer" class="explorer">
       <div class="explorer-header">
         <span class="explorer-title">Explorer</span>
-        <button id="explorerOpenFile" class="explorer-icon-btn" title="Open File">File</button>
-        <button id="explorerOpenFolder" class="explorer-icon-btn" title="Open Folder">Folder</button>
-        <button id="explorerHide" class="explorer-icon-btn" title="Hide explorer">‹</button>
+      </div>
+      <div class="explorer-actions" aria-label="Open data">
+        <button id="explorerOpenFile" class="explorer-action-btn" type="button" title="Choose a JSONL file to open">Open File</button>
+        <button id="explorerOpenFolder" class="explorer-action-btn" type="button" title="Choose a folder to browse">Open Folder</button>
+        <button id="explorerOpenTraces" class="explorer-action-btn" type="button" title="Open a trace from Codex, Claude Code, Pi, or Hermes">Open Traces</button>
       </div>
       <div id="explorerOpenSection" class="explorer-section" hidden>
         <div class="explorer-section-label">Open files</div>
@@ -60,6 +58,7 @@
         <div id="explorerTree" class="explorer-tree"></div>
       </div>
       <div id="explorerResizer" class="explorer-resizer"></div>
+      <button id="explorerHide" class="explorer-edge-toggle explorer-hide" type="button" title="Hide file explorer (Cmd/Ctrl+B)" aria-label="Hide file explorer">‹</button>
     </aside>
     <div class="main-col">
     <section class="controls" id="controls" hidden>
@@ -115,6 +114,11 @@
         </div>
         <div id="sidebarBody" class="sidebar-body"></div>
       </aside>
+      <div id="traceNav" class="trace-nav" hidden>
+        <button id="traceNavUp" class="trace-nav-btn" type="button" title="Previous message ( [ )" aria-label="Previous user or assistant message">▲</button>
+        <span id="traceNavPos" class="trace-nav-pos">– / –</span>
+        <button id="traceNavDown" class="trace-nav-btn" type="button" title="Next message ( ] )" aria-label="Next user or assistant message">▼</button>
+      </div>
       <div id="dropOverlay" class="drop-overlay" hidden>Drop file to open</div>
     </main>
     </div>
@@ -122,6 +126,7 @@
   </div>
 
   <div id="ctxMenu" class="ctx-menu" hidden></div>
+  <div id="traceSourcesMenu" class="trace-sources-menu" hidden></div>
   <script src="trace-parser.js"></script>
   <script src="renderer.js"></script>
 </body>

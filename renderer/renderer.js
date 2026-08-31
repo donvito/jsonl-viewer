@@ -13,6 +13,7 @@ const state = {
   traceExpansion: 'expanded',
   traceOpen: new Set(),
   traceClosed: new Set(),
+  traceNavCurrent: -1,
   zoom: 1,
   filter: '',
   expanded: new Set(),
@@ -61,9 +62,10 @@ const $ = (sel) => document.querySelector(sel);
 const els = {
   workspace: $('#workspace'),
   explorer: $('#explorer'),
-  explorerToggle: $('#explorerToggle'),
+  explorerShow: $('#explorerShow'),
   explorerOpenFile: $('#explorerOpenFile'),
   explorerOpenFolder: $('#explorerOpenFolder'),
+  explorerOpenTraces: $('#explorerOpenTraces'),
   explorerHide: $('#explorerHide'),
   explorerRefresh: $('#explorerRefresh'),
   explorerCloseFolder: $('#explorerCloseFolder'),
@@ -78,7 +80,6 @@ const els = {
   themeBtn: $('#themeBtn'),
   themeLabel: $('#themeLabel'),
   themeMenu: $('#themeMenu'),
-  traceSourcesBtn: $('#traceSourcesBtn'),
   traceSourcesMenu: $('#traceSourcesMenu'),
   editToggle: $('#editToggle'),
   saveBtn: $('#saveBtn'),
@@ -88,6 +89,10 @@ const els = {
   stat: $('#stat'),
   traceViewToggle: $('#traceViewToggle'),
   traceControls: $('#traceControls'),
+  traceNav: $('#traceNav'),
+  traceNavUp: $('#traceNavUp'),
+  traceNavDown: $('#traceNavDown'),
+  traceNavPos: $('#traceNavPos'),
   content: $('#content'),
   viewPane: $('#viewPane'),
   sidebar: $('#sidebar'),
@@ -513,7 +518,6 @@ async function openTraceSourceFolder(key) {
 function closeTraceSourcesMenu() {
   if (!els.traceSourcesMenu) return;
   els.traceSourcesMenu.hidden = true;
-  if (els.traceSourcesBtn) els.traceSourcesBtn.setAttribute('aria-expanded', 'false');
 }
 
 function openTraceSourcesMenu() {
@@ -525,7 +529,6 @@ function openTraceSourcesMenu() {
   if (els.themeMenu) closeThemeMenu();
   if (els.colPopover) els.colPopover.hidden = true;
   els.traceSourcesMenu.hidden = false;
-  els.traceSourcesBtn.setAttribute('aria-expanded', 'true');
   renderTraceSourcesMenu();
   loadTraceSources();
 }
@@ -591,6 +594,7 @@ function render() {
     els.treeCollapseAll.hidden = true;
     els.traceViewToggle.hidden = true;
     els.traceControls.hidden = true;
+    els.traceNav.hidden = true;
     els.editToggle.hidden = false;
     els.search.placeholder = 'Filter rows by text (searches raw JSON)…';
     return;
@@ -600,6 +604,7 @@ function render() {
   els.controls.hidden = false;
   els.traceViewToggle.hidden = !state.trace;
   els.traceControls.hidden = state.view !== 'trace' || !state.trace;
+  els.traceNav.hidden = state.view !== 'trace' || !state.trace;
   els.search.placeholder = state.view === 'trace'
     ? 'Filter trace content (messages, tools, results)…'
     : 'Filter rows by text (searches raw JSON)…';
@@ -1278,6 +1283,110 @@ function renderTrace(trace) {
   els.viewPane.querySelectorAll('.trace-entry[data-idx]').forEach((entry) => {
     entry.addEventListener('click', () => selectRow(Number(entry.dataset.idx)));
   });
+  traceNavUpdate();
+}
+
+// ---- Trace message navigation ----
+// Up/down buttons (and [ / ] keys) jump between user and assistant messages
+// in the trace timeline; tool calls and events are skipped. The position
+// indicator tracks the last message whose top has scrolled past the top of
+// the viewport, so the buttons always move relative to what you're looking at.
+function traceNavMessageEls() {
+  return Array.from(els.viewPane.querySelectorAll('.trace-entry-user, .trace-entry-assistant'));
+}
+
+// While a button-driven jump is in flight (or when the pane can't scroll
+// further, e.g. the trace fits on one screen) the stored index is kept
+// instead of being re-derived from the scroll position.
+let traceNavJumpLock = 0;
+let traceNavJumpStart = 0;
+let traceNavJumpTarget = 0;
+let traceNavLastScrollTop = null;
+let traceNavJumpLockTimer = 0;
+
+function traceNavUpdate() {
+  if (!els.traceNav) return;
+  if (state.view !== 'trace' || !state.trace) {
+    els.traceNav.hidden = true;
+    traceNavLastScrollTop = null;
+    return;
+  }
+  const messages = traceNavMessageEls();
+  if (!messages.length) {
+    els.traceNav.hidden = true;
+    traceNavLastScrollTop = null;
+    return;
+  }
+  els.traceNav.hidden = false;
+  const scrollTop = els.viewPane.scrollTop;
+  const scrolled = traceNavLastScrollTop !== scrollTop;
+  traceNavLastScrollTop = scrollTop;
+  if (Date.now() > traceNavJumpLock && scrolled) {
+    // Scroll position changed outside of a jump: track the last message
+    // whose top has passed the top of the viewport.
+    const anchor = els.viewPane.getBoundingClientRect().top + 40;
+    let idx = 0;
+    for (let i = 0; i < messages.length; i++) {
+      if (messages[i].getBoundingClientRect().top <= anchor) idx = i;
+      else break;
+    }
+    // At the very bottom of an overflowing trace the last message is what
+    // you're reading, even though its top sits below the anchor line. A few
+    // pixels of slack absorb settle wobble from in-flight smooth scrolls.
+    if (scrollTop + els.viewPane.clientHeight >= els.viewPane.scrollHeight - 8 &&
+        els.viewPane.scrollHeight > els.viewPane.clientHeight + 2) {
+      idx = messages.length - 1;
+    }
+    state.traceNavCurrent = idx;
+  } else if (state.traceNavCurrent < 0) {
+    state.traceNavCurrent = 0;
+  } else if (state.traceNavCurrent > messages.length - 1) {
+    state.traceNavCurrent = messages.length - 1;
+  }
+  const idx = state.traceNavCurrent;
+  els.traceNavPos.textContent = (idx + 1) + ' / ' + messages.length;
+  els.traceNavUp.disabled = idx <= 0;
+  els.traceNavDown.disabled = idx >= messages.length - 1;
+  const role = messages[idx].classList.contains('trace-entry-user') ? 'User' : 'Assistant';
+  const textEl = messages[idx].querySelector('.trace-text');
+  let label = textEl ? textEl.textContent.replace(/\s+/g, ' ').trim() : '';
+  if (!label) label = role;
+  if (label.length > 60) label = label.slice(0, 59) + '…';
+  els.traceNavUp.title = idx <= 0 ? 'No previous message' : 'Previous message ( [ ) · ' + role + ': ' + label;
+  els.traceNavDown.title = idx >= messages.length - 1 ? 'No next message' : 'Next message ( ] ) · ' + role + ': ' + label;
+}
+
+function traceNavStep(direction) {
+  if (state.view !== 'trace' || !state.trace) return;
+  const messages = traceNavMessageEls();
+  if (!messages.length) return;
+  let idx = state.traceNavCurrent;
+  if (!Number.isFinite(idx) || idx < 0) idx = 0;
+  if (idx > messages.length - 1) idx = messages.length - 1;
+  idx = direction > 0 ? Math.min(messages.length - 1, idx + 1) : Math.max(0, idx - 1);
+  const target = messages[idx];
+  const pane = els.viewPane;
+  const targetScroll = Math.max(0, target.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop - 8);
+  pane.scrollTo({ top: targetScroll, behavior: 'smooth' });
+  state.traceNavCurrent = idx;
+  traceNavJumpLock = Date.now() + 800;
+  traceNavJumpStart = pane.scrollTop;
+  traceNavJumpTarget = targetScroll;
+  // When the lock expires without further scrolling (the jump settled, or
+  // the pane could not scroll far enough, e.g. the trace fits on one
+  // screen) anchor tracking to the current position so the jumped-to index
+  // is kept until the user scrolls again.
+  clearTimeout(traceNavJumpLockTimer);
+  traceNavJumpLockTimer = setTimeout(() => {
+    traceNavJumpLock = 0;
+    traceNavLastScrollTop = els.viewPane.scrollTop;
+  }, 800);
+  target.classList.remove('trace-nav-flash');
+  void target.offsetWidth; // restart the flash animation on rapid presses
+  target.classList.add('trace-nav-flash');
+  clearTimeout(target._traceNavFlashT);
+  target._traceNavFlashT = setTimeout(() => target.classList.remove('trace-nav-flash'), 1100);
+  traceNavUpdate();
 }
 
 // ---- Tree view ----
@@ -1780,7 +1889,6 @@ function applyExplorerWidth() {
 function setExplorerVisible(on, { persist = true } = {}) {
   explorer.visible = !!on;
   if (els.workspace) els.workspace.classList.toggle('explorer-hidden', !explorer.visible);
-  if (els.explorerToggle) els.explorerToggle.classList.toggle('active', explorer.visible);
   if (persist) persistExplorerPrefs();
 }
 
@@ -1906,14 +2014,7 @@ function renderExplorer() {
   if (!explorer.folder) {
     const empty = document.createElement('div');
     empty.className = 'explorer-empty';
-    empty.appendChild(document.createTextNode('Open a folder to browse .jsonl / .ndjson files.'));
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'btn';
-    btn.textContent = 'Open Folder';
-    btn.addEventListener('click', () => openExplorerFolder(null));
-    empty.appendChild(document.createElement('br'));
-    empty.appendChild(btn);
+    empty.textContent = 'No folder open. Choose Open Folder above to browse .jsonl and .ndjson files.';
     els.explorerTree.appendChild(empty);
     return;
   }
@@ -2023,10 +2124,14 @@ function setupExplorerResizer() {
   } catch (e) {}
   applyExplorerWidth();
   setExplorerVisible(explorer.visible, { persist: false });
-  if (els.explorerToggle) els.explorerToggle.addEventListener('click', toggleExplorer);
+  if (els.explorerShow) els.explorerShow.addEventListener('click', () => setExplorerVisible(true));
   if (els.explorerHide) els.explorerHide.addEventListener('click', () => setExplorerVisible(false));
   if (els.explorerOpenFile) els.explorerOpenFile.addEventListener('click', () => openFile(null));
   if (els.explorerOpenFolder) els.explorerOpenFolder.addEventListener('click', () => openExplorerFolder(null));
+  if (els.explorerOpenTraces) els.explorerOpenTraces.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openTraceSourcesMenu();
+  });
   if (els.explorerRefresh) els.explorerRefresh.addEventListener('click', refreshExplorerFolder);
   if (els.explorerCloseFolder) els.explorerCloseFolder.addEventListener('click', closeExplorerFolder);
   if (els.emptyOpenFile) els.emptyOpenFile.addEventListener('click', () => openFile(null));
@@ -2051,12 +2156,6 @@ els.themeBtn.addEventListener('click', (e) => {
 if (els.zoomOutBtn) els.zoomOutBtn.addEventListener('click', () => changeZoom(-1));
 if (els.zoomResetBtn) els.zoomResetBtn.addEventListener('click', () => setZoom(1));
 if (els.zoomInBtn) els.zoomInBtn.addEventListener('click', () => changeZoom(1));
-if (els.traceSourcesBtn) {
-  els.traceSourcesBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    openTraceSourcesMenu();
-  });
-}
 els.editToggle.addEventListener('click', () => setEditMode(!state.editMode));
 els.saveBtn.addEventListener('click', saveFile);
 els.treeExpandAll.addEventListener('click', expandAllTree);
@@ -2066,6 +2165,42 @@ els.traceControls.querySelectorAll('[data-trace-layout]').forEach((button) => {
 });
 els.traceControls.querySelectorAll('[data-trace-expansion]').forEach((button) => {
   button.addEventListener('click', () => setTraceExpansion(button.dataset.traceExpansion));
+});
+
+// Trace message navigation: buttons, scroll tracking, and [ / ] shortcuts.
+els.traceNavUp.addEventListener('click', () => traceNavStep(-1));
+els.traceNavDown.addEventListener('click', () => traceNavStep(1));
+let traceNavScrollRaf = 0;
+els.viewPane.addEventListener('scroll', () => {
+  if (state.view !== 'trace' || !state.trace || traceNavScrollRaf) return;
+  traceNavScrollRaf = requestAnimationFrame(() => {
+    traceNavScrollRaf = 0;
+    if (Date.now() <= traceNavJumpLock) {
+      const st = els.viewPane.scrollTop;
+      if (Math.abs(st - traceNavJumpTarget) <= 4) {
+        // Jump settled: keep the jumped-to index and resume tracking from
+        // the current position.
+        traceNavJumpLock = 0;
+        traceNavLastScrollTop = st;
+        return;
+      }
+      // The user takes over only when scrolling against the jump direction.
+      const scrolledAway = traceNavJumpTarget >= traceNavJumpStart
+        ? st < traceNavJumpStart - 80
+        : st > traceNavJumpStart + 80;
+      if (scrolledAway) traceNavJumpLock = 0;
+      else return; // animation still in flight
+    }
+    traceNavUpdate();
+  });
+}, { passive: true });
+document.addEventListener('keydown', (e) => {
+  if (state.view !== 'trace' || !state.trace) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  if (e.key === ']') { e.preventDefault(); traceNavStep(1); }
+  else if (e.key === '[') { e.preventDefault(); traceNavStep(-1); }
 });
 
 // Close the theme menu when clicking outside it or pressing Escape
@@ -2082,9 +2217,7 @@ document.addEventListener('keydown', (e) => {
 // Close the trace source menu when clicking outside it or pressing Escape.
 document.addEventListener('click', (e) => {
   if (!els.traceSourcesMenu || els.traceSourcesMenu.hidden) return;
-  if (!els.traceSourcesMenu.contains(e.target) && e.target !== els.traceSourcesBtn && !els.traceSourcesBtn.contains(e.target)) {
-    closeTraceSourcesMenu();
-  }
+  if (!els.traceSourcesMenu.contains(e.target)) closeTraceSourcesMenu();
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && els.traceSourcesMenu && !els.traceSourcesMenu.hidden) closeTraceSourcesMenu();

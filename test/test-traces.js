@@ -1,5 +1,5 @@
 const assert = require('assert');
-const traceParser = require('./renderer/trace-parser.js');
+const traceParser = require('../renderer/trace-parser.js');
 
 const sts = [
   { type: 'session', harness: 'demo-agent', id: 'sts-1', name: 'STS example' },

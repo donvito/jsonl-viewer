@@ -7,7 +7,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 
-const electronPath = path.join(__dirname, 'node_modules', '.bin', 'electron');
+const electronPath = path.join(__dirname, '..', 'node_modules', '.bin', 'electron');
 const sampleFile = path.join(__dirname, 'sample.jsonl');
 
 const env = Object.assign({}, process.env, {
@@ -19,7 +19,7 @@ const args = [
   '--no-sandbox',
   '--disable-gpu',
   '--disable-dev-shm-usage',
-  path.join(__dirname),
+  path.join(__dirname, '..'),
   `--file=${sampleFile}`
 ];
 

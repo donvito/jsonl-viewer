@@ -422,7 +422,7 @@ app.whenReady().then(() => {
   });
 
   // Auto-open a file passed on the command line:
-  //   electron . --file=sample.jsonl   (or --file sample.jsonl)
+  //   electron . --file=test/sample.jsonl   (or --file test/sample.jsonl)
   // Fallback: any argv entry ending in a known data-file extension. In a
   // packaged build argv[0] is the executable, so it never matches.
   const fileArg = fileFromArgv(process.argv.slice(1));

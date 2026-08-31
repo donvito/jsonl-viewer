@@ -6,6 +6,7 @@
 - **Tree view** — each line is a collapsible node; expand it to browse nested objects/arrays as an interactive tree, with every container node independently collapsible and a count summary.
 - **Raw view** — toggle to see each line's verbatim text with line numbers.
 - **Agent trace view** — automatically detects Hugging Face Session Trace Simple Format, Pi, Codex, Claude Code, and Hermes sessions; renders user/assistant turns, thinking, tool calls/results, timestamps, and token usage in a readable timeline with compact/wide and collapsed/expanded modes.
+- **Trace message navigation** — in the Traces view, a floating ▲/▼ widget (bottom-right) jumps between user and assistant messages, skipping tool calls and events; the `n / total` counter follows your scroll position, and `[` / `]` do the same from the keyboard.
 - **Common trace sources** — the toolbar's *Traces* menu scans the standard Codex (`~/.codex/sessions`), Claude Code (`~/.claude/projects`), Pi (`~/.pi/agent/sessions`), and Hermes (`~/.hermes/session-exports/traces`, with `~/.hermes/sessions` fallback) locations and opens the latest sessions directly.
 - **Row expand** — click `+` on any row to expand the full pretty-printed JSON with syntax highlighting.
 - **Live filter** — search box filters rows by raw text (case-insensitive).

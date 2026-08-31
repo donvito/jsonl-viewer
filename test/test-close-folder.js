@@ -84,7 +84,21 @@ async function runTests() {
     explorer.children={}; explorer.expanded=new Set(); explorer.autoFolderDisabled=false;
     explorer.openFiles=[]; explorer.sessions={}; explorer.activePath=null; renderExplorer(); true; })()`);
 
-  console.log('Open folder:');
+  console.log('Explorer actions:');
+  const actions = await js(`(function() {
+    const buttons = Array.from(document.querySelectorAll('.explorer-actions button'));
+    return {
+      labels: buttons.map((button) => button.textContent.trim()),
+      duplicateFolderCta: !!document.querySelector('#explorerTree button'),
+      emptyText: document.querySelector('#explorerTree .explorer-empty').textContent
+    };
+  })()`);
+  assert(actions.labels.join('|') === 'Open File|Open Folder|Open Traces',
+    `explorer has one clear action row (got ${actions.labels.join(', ')})`);
+  assert(actions.duplicateFolderCta === false, 'no duplicate Open Folder CTA in the empty state');
+  assert(/^No folder open\./.test(actions.emptyText), 'empty state is informational');
+
+  console.log('\nOpen folder:');
   const opened = await js(`
     (async function() {
       await openExplorerFolder(${JSON.stringify(tmp)});
@@ -122,6 +136,40 @@ async function runTests() {
   assert(withFile.rows === 2, `2 rows parsed (got ${withFile.rows})`);
   assert(withFile.openCount === 1, `1 entry in Open files (got ${withFile.openCount})`);
   assert(withFile.openSectionHidden === false, 'Open files section visible');
+
+  console.log('\nHide and restore the explorer after opening a file:');
+  const hidden = await js(`
+    (function() {
+      const workspace = document.getElementById('workspace');
+      const workspaceMidpoint = workspace.getBoundingClientRect().top + workspace.getBoundingClientRect().height / 2;
+      const hide = document.getElementById('explorerHide');
+      const hideRect = hide.getBoundingClientRect();
+      const hideCentered = Math.abs(hideRect.top + hideRect.height / 2 - workspaceMidpoint) < 1;
+      hide.click();
+      const restore = document.getElementById('explorerShow');
+      const restoreRect = restore.getBoundingClientRect();
+      const result = {
+        explorerVisible: explorer.visible,
+        workspaceHidden: document.getElementById('workspace').classList.contains('explorer-hidden'),
+        restoreVisible: getComputedStyle(restore).display !== 'none',
+        hideCentered,
+        restoreCentered: Math.abs(restoreRect.top + restoreRect.height / 2 - workspaceMidpoint) < 1,
+        filePath: state.filePath
+      };
+      restore.click();
+      result.restored = explorer.visible;
+      result.workspaceRestored = !document.getElementById('workspace').classList.contains('explorer-hidden');
+      return result;
+    })()
+  `);
+  assert(hidden.explorerVisible === false, 'hide button hides the explorer');
+  assert(hidden.workspaceHidden === true, 'workspace enters explorer-hidden state');
+  assert(hidden.restoreVisible === true, 'left-edge restore handle remains visible');
+  assert(hidden.hideCentered === true, 'hide handle is vertically centered');
+  assert(hidden.restoreCentered === true, 'restore handle uses the same vertical position');
+  assert(hidden.filePath === fileA, 'active file remains loaded while explorer is hidden');
+  assert(hidden.restored === true, 'restore handle shows the explorer again');
+  assert(hidden.workspaceRestored === true, 'workspace leaves explorer-hidden state');
 
   console.log('\nClose the folder (click the ✕ button):');
   const closed = await js(`
@@ -228,12 +276,12 @@ async function runTests() {
 app.whenReady().then(async () => {
   win = new BrowserWindow({
     width: 1200, height: 800, show: false,
-    webPreferences: { preload: path.join(__dirname, 'src', 'preload.js'), contextIsolation: true, nodeIntegration: false }
+    webPreferences: { preload: path.join(__dirname, '..', 'src', 'preload.js'), contextIsolation: true, nodeIntegration: false }
   });
   win.webContents.on('console-message', (_e, level, message) => {
     if (level >= 2) console.log('    [renderer] ' + message);
   });
-  await win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   try {
     await runTests();
   } catch (err) {

@@ -1,0 +1,6 @@
+{"type":"user","message":{"role":"user","content":"Hello there!"},"sessionId":"nav-test-short","timestamp":"2025-08-30T10:00:00.000Z"}
+{"type":"assistant","message":{"id":"msg_1","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"Hi! How can I help you today?"}],"usage":{"input_tokens":107,"output_tokens":23}},"sessionId":"nav-test-short","timestamp":"2025-08-30T10:00:01.000Z"}
+{"type":"user","message":{"role":"user","content":"What time is it in Tokyo?"},"sessionId":"nav-test-short","timestamp":"2025-08-30T10:00:02.000Z"}
+{"type":"assistant","message":{"id":"msg_2","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"It is currently 9 pm in Tokyo, Japan."}],"usage":{"input_tokens":121,"output_tokens":29}},"sessionId":"nav-test-short","timestamp":"2025-08-30T10:00:03.000Z"}
+{"type":"user","message":{"role":"user","content":"Thanks, goodbye!"},"sessionId":"nav-test-short","timestamp":"2025-08-30T10:00:04.000Z"}
+{"type":"assistant","message":{"id":"msg_3","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"Goodbye — have a great day!"}],"usage":{"input_tokens":135,"output_tokens":35}},"sessionId":"nav-test-short","timestamp":"2025-08-30T10:00:05.000Z"}

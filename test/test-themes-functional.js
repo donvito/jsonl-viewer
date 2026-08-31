@@ -174,7 +174,7 @@ app.whenReady().then(() => {
     height: 800,
     show: false,
     webPreferences: {
-      preload: path.join(__dirname, 'src', 'preload.js'),
+      preload: path.join(__dirname, '..', 'src', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -186,7 +186,7 @@ app.whenReady().then(() => {
     console.error('Renderer process gone:', details);
     app.exit(1);
   });
-  win.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'))
     .then(() => console.log('[main] loadFile resolved'))
     .then(runTests)
     .catch((err) => {
