@@ -24,6 +24,8 @@ html, body {
 
 /* Toolbar */
 .toolbar {
+  position: relative;
+  z-index: 70;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -48,7 +50,13 @@ html, body {
 }
 .brand .title { font-size: 14px; letter-spacing: 0.2px; }
 
-.toolbar-actions { display: flex; gap: 8px; }
+.toolbar-actions {
+  position: absolute;
+  left: 50%;
+  display: flex;
+  gap: 8px;
+  transform: translateX(-50%);
+}
 
 .zoom-controls {
   display: inline-flex;
@@ -352,7 +360,7 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 50%;
+  max-width: calc(50% - 145px);
 }
 
 /* Controls */
