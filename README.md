@@ -5,18 +5,19 @@
 ![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-cba6f7?style=flat-square&labelColor=1e1e2e)
 [![License](https://img.shields.io/badge/license-Apache%202.0-f9e2af?style=flat-square&labelColor=1e1e2e)](./LICENSE)
 
-A small desktop Electron app for viewing and inspecting `.jsonl` / `.ndjson` (JSON Lines) files.
-
-![JSONL Viewer](./images/jsonl-editor-v2.png)
+A desktop app for viewing and inspecting `.jsonl` / `.ndjson` (JSON Lines) files which are the usual format for model fine-tuning  datasets. It also supports viewing of agent traces from Codex, Claude Code, Pi and Hermes.
 
 ## Download
 
-Installers for macOS, Windows and Linux are on the
-[latest release](https://github.com/donvito/jsonl-viewer/releases/latest).
+[Download the latest release for macOS, Windows, or Linux.](https://github.com/donvito/jsonl-viewer/releases/latest)
 
-The builds are unsigned, so macOS shows an unidentified-developer prompt on
-first open — right-click the app and choose *Open* — and Windows SmartScreen
-shows an unknown-publisher prompt.
+### Traces view
+
+![JSONL Viewer traces view](./images/traces-view.png)
+
+### Table view
+
+![JSONL Viewer table view](./images/table-view.png)
 
 ## Run from source
 
