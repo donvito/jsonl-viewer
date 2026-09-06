@@ -51,10 +51,10 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  # dmg only. electron-builder's zip target exists mainly as an update payload
+  # for electron-updater, which this app does not use.
   target:
     - target: dmg
-      arch: [arm64, x64]
-    - target: zip
       arch: [arm64, x64]
 
 dmg:
@@ -79,6 +79,9 @@ win:
 nsis:
   # One installer per architecture instead of a combined double-size one.
   buildUniversalInstaller: false
+  # Differential packaging only helps electron-updater, and emits a .blockmap
+  # next to every installer. Off, so the release page stays installers only.
+  differentialPackage: false
   oneClick: false
   perMachine: false
   allowElevation: true
@@ -108,8 +111,6 @@ linux:
     - target: AppImage
       arch: [x64, arm64]
     - target: deb
-      arch: [x64, arm64]
-    - target: tar.gz
       arch: [x64, arm64]
 
 appImage:

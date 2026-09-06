@@ -66,11 +66,9 @@ jobs:
           if-no-files-found: error
           path: |
             dist/*.dmg
-            dist/*.zip
             dist/*.exe
             dist/*.AppImage
             dist/*.deb
-            dist/*.tar.gz
 
   publish:
     needs: build
@@ -78,6 +76,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # electron-builder writes update metadata whenever it publishes, and
+      # there is no config switch to stop it. Nothing consumes it here — the
+      # app does not bundle electron-updater — so it comes off the release
+      # rather than sitting there as clutter next to the installers.
+      - name: Drop auto-update metadata from the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # `|| true` because the runner shell sets pipefail: once the build
+          # config stops emitting these, grep finding nothing is success.
+          gh release view "$TAG" --json assets -q '.assets[].name' \
+            | { grep -E '\.blockmap$|^latest.*\.yml$' || true; } \
+            | while read -r asset; do
+                echo "removing $asset"
+                gh release delete-asset "$TAG" "$asset" --yes
+              done
+
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
