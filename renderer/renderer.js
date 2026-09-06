@@ -13,7 +13,12 @@ const state = {
   traceExpansion: 'expanded',
   traceOpen: new Set(),
   traceClosed: new Set(),
+  traceOrder: 'oldest',
   traceNavCurrent: -1,
+  // Live tail state for the open file. `offset`/`index` mark how far the
+  // renderer has consumed; `follow` keeps the newest entry in view; `pending`
+  // counts entries that arrived while the user was reading further back.
+  stream: { offset: 0, index: 0, live: false, follow: true, pending: 0 },
   zoom: 1,
   filter: '',
   expanded: new Set(),
@@ -29,9 +34,10 @@ const state = {
 
 // Trace detail values stay in memory instead of being copied into HTML
 // attributes. This keeps large tool inputs/results out of the DOM and makes
-// the copy buttons safe for arbitrary trace content.
+// the copy buttons safe for arbitrary trace content. Tokens are derived from
+// the block's identity rather than a counter so an unchanged entry renders to
+// byte-identical HTML and the incremental renderer can skip it.
 const traceCopyValues = new Map();
-let traceCopySerial = 0;
 
 const TRACE_SOURCES = [
   { key: 'codex', label: 'Codex', location: '~/.codex/sessions' },
@@ -39,6 +45,7 @@ const TRACE_SOURCES = [
   { key: 'pi', label: 'Pi', location: '~/.pi/agent/sessions' },
   { key: 'hermes', label: 'Hermes', location: '~/.hermes/session-exports/traces' }
 ];
+const TRACE_SOURCE_LIVE_MS = 2 * 60 * 1000;
 const traceSourceResults = new Map();
 const traceSourceFileValues = new Map();
 let traceSourceFileSerial = 0;
@@ -90,6 +97,7 @@ const els = {
   stat: $('#stat'),
   traceViewToggle: $('#traceViewToggle'),
   traceControls: $('#traceControls'),
+  traceFollow: $('#traceFollow'),
   traceNav: $('#traceNav'),
   traceNavUp: $('#traceNavUp'),
   traceNavDown: $('#traceNavDown'),
@@ -132,6 +140,17 @@ function zoomIndex(value) {
     }
   });
   return best;
+}
+
+function persistTraceOrder() {
+  try { localStorage.setItem('jsonl-viewer:traceOrder', state.traceOrder); } catch (e) {}
+}
+
+function restoreTraceOrder() {
+  try {
+    const value = localStorage.getItem('jsonl-viewer:traceOrder');
+    if (value === 'oldest' || value === 'newest') state.traceOrder = value;
+  } catch (e) {}
 }
 
 function persistZoom() {
@@ -436,8 +455,13 @@ function renderTraceSourcesMenu() {
             formatBytes(file.size),
             formatTraceSourceTime(file.mtimeMs)
           ].filter(Boolean).join(' · ');
+          // A session written to in the last couple of minutes is almost
+          // certainly the agent you are running right now.
+          const live = Date.now() - file.mtimeMs < TRACE_SOURCE_LIVE_MS
+            ? '<span class="trace-source-live" title="Written to in the last couple of minutes"><span class="trace-live-dot"></span>LIVE</span>'
+            : '';
           return `<button type="button" class="trace-source-file" data-trace-file="${escapeHtml(token)}" title="${escapeHtml(file.path)}">
-            <span class="trace-source-file-name">${escapeHtml(file.name)}</span>
+            <span class="trace-source-file-name">${escapeHtml(file.name)}${live}</span>
             <span class="trace-source-file-detail">${escapeHtml(detail)}</span>
           </button>`;
         }).join('');
@@ -606,6 +630,7 @@ function render() {
   els.traceViewToggle.hidden = !state.trace;
   els.traceControls.hidden = state.view !== 'trace' || !state.trace;
   els.traceNav.hidden = state.view !== 'trace' || !state.trace;
+  if (state.view !== 'trace' || !state.trace) updateTraceFollowUi();
   els.search.placeholder = state.view === 'trace'
     ? 'Filter trace content (messages, tools, results)…'
     : 'Filter rows by text (searches raw JSON)…';
@@ -956,8 +981,7 @@ function toggleTraceDisclosure(key) {
   }
 }
 
-function traceCopyToken(value) {
-  const key = `trace-copy-${traceCopySerial++}`;
+function traceCopyToken(key, value) {
   traceCopyValues.set(key, value == null ? '' : String(value));
   return key;
 }
@@ -1081,13 +1105,13 @@ function traceToolGroupLabel(calls) {
   return `${count} tool call${count === 1 ? '' : 's'}${suffix}`;
 }
 
-function renderTraceToolDetails(block) {
+function renderTraceToolDetails(block, key) {
   const input = formatTraceValue(block.input);
   const hasResult = !!block.result;
   const result = hasResult ? formatTraceValue(block.result.output) : 'Waiting for result…';
   const resultError = hasResult && !!block.result.error;
-  const inputCopy = traceCopyToken(input);
-  const resultCopy = traceCopyToken(result);
+  const inputCopy = traceCopyToken(`${key}:input`, input);
+  const resultCopy = traceCopyToken(`${key}:result`, result);
   return `<div class="trace-tool-body">
     <div class="trace-code-section">
       <div class="trace-code-head"><div class="trace-code-label">Input</div><button type="button" class="trace-copy-button" data-trace-copy="${escapeHtml(inputCopy)}" aria-label="Copy tool input" title="Copy tool input">⧉</button></div>
@@ -1108,7 +1132,7 @@ function renderTraceToolRow(item, block, blockIndex) {
   const status = hasResult ? (resultError ? '· error' : '· complete') : '· running';
   const inputPreview = traceCompactValue(block.input);
   const resultPreview = traceCompactValue(hasResult ? block.result.output : 'Waiting for result…', 220);
-  const detailMarkup = open ? renderTraceToolDetails(block) : '';
+  const detailMarkup = open ? renderTraceToolDetails(block, key) : '';
   return `<div class="trace-tool-row">
     <button type="button" class="trace-disclosure trace-tool-summary" data-trace-disclosure="${escapeHtml(key)}" aria-expanded="${open}">
       <span class="trace-disclosure-caret">${open ? '▾' : '▸'}</span><span class="trace-tool-icon">↗</span><strong class="trace-tool-name">${escapeHtml(block.name || 'tool')}</strong>${inputPreview ? `<span class="trace-tool-input-preview">${escapeHtml(inputPreview)}</span>` : ''}<span class="trace-tool-status${resultError ? ' error' : ''}">${escapeHtml(status)}</span>
@@ -1181,7 +1205,7 @@ function renderTraceBlock(item, block, blockIndex) {
     const key = `result:${item.sourceLine}:${block.id || blockIndex}`;
     const open = traceDisclosureOpen(key);
     const output = formatTraceValue(block.output);
-    const outputCopy = traceCopyToken(output);
+    const outputCopy = traceCopyToken(`${key}:output`, output);
     return `<div class="trace-tool-group trace-tool-group-standalone">
       <button type="button" class="trace-tool-group-header trace-disclosure" data-trace-disclosure="${escapeHtml(key)}" aria-expanded="${open}">
         <span class="trace-disclosure-caret">${open ? '▾' : '▸'}</span><strong>Tool result</strong>
@@ -1226,6 +1250,9 @@ function updateTraceControls() {
   els.traceControls.querySelectorAll('[data-trace-expansion]').forEach((button) => {
     button.classList.toggle('active', button.dataset.traceExpansion === state.traceExpansion);
   });
+  els.traceControls.querySelectorAll('[data-trace-order]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.traceOrder === state.traceOrder);
+  });
 }
 
 function setTraceLayout(layout) {
@@ -1242,48 +1269,155 @@ function setTraceExpansion(expansion) {
   render();
 }
 
+function setTraceOrder(order) {
+  if (order !== 'oldest' && order !== 'newest') return;
+  if (state.traceOrder === order) return;
+  state.traceOrder = order;
+  persistTraceOrder();
+  state.stream.pending = 0;
+  render();
+  // Flipping the order moves everything, so anchor the viewport instead of
+  // leaving it parked mid-session: a live trace goes to the newest entry, a
+  // finished one to the top of the pane.
+  if (state.stream.live) scrollToNewest(false);
+  else els.viewPane.scrollTop = 0;
+}
+
+// The trace timeline is patched rather than rebuilt. A live session appends
+// (and mutates its tail: a tool call gains its result later), so re-writing
+// the whole pane on every change would drop scroll position, collapse state
+// and text selection several times a second. Each entry renders to a string;
+// only entries whose string changed touch the DOM.
+const traceRender = { keys: [], html: new Map(), fileKey: null, headerHtml: '' };
+
+function resetTraceRender() {
+  traceRender.keys = [];
+  traceRender.html = new Map();
+  traceRender.fileKey = null;
+  traceRender.headerHtml = '';
+}
+
+function traceItemKey(item, position) {
+  return item.sourceLine == null ? `p${position}` : `l${item.sourceLine}`;
+}
+
+function nodeFromHtml(html) {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  return template.content.firstElementChild;
+}
+
+// Fast path: the previous keys are a prefix (appending, oldest first) or a
+// suffix (prepending, newest first) of the new ones. Anything else — a filter
+// change, a reordering, a different file — rebuilds the list.
+function patchTraceTimeline(container, entries) {
+  const keys = entries.map((entry) => entry.key);
+  const prev = traceRender.keys;
+  const children = container.children;
+  const canPatch = prev.length > 0 && children.length === prev.length && prev.length <= keys.length;
+  const isPrefix = canPatch && prev.every((key, i) => key === keys[i]);
+  const offset = keys.length - prev.length;
+  const isSuffix = canPatch && !isPrefix && prev.every((key, i) => key === keys[offset + i]);
+
+  if (!isPrefix && !isSuffix) {
+    container.innerHTML = entries.map((entry) => entry.html).join('');
+  } else {
+    const base = isPrefix ? 0 : offset;
+    for (let i = 0; i < prev.length; i++) {
+      const entry = entries[base + i];
+      if (traceRender.html.get(entry.key) === entry.html) continue;
+      const node = nodeFromHtml(entry.html);
+      if (node) container.replaceChild(node, children[i]);
+    }
+    if (isPrefix) {
+      const tail = entries.slice(prev.length).map((entry) => entry.html).join('');
+      if (tail) container.insertAdjacentHTML('beforeend', tail);
+    } else {
+      const head = entries.slice(0, offset).map((entry) => entry.html).join('');
+      if (head) container.insertAdjacentHTML('afterbegin', head);
+    }
+  }
+
+  traceRender.keys = keys;
+  traceRender.html = new Map(entries.map((entry) => [entry.key, entry.html]));
+}
+
+// Listeners live on the timeline container, so patched-in entries work
+// without re-binding anything.
+function bindTraceDelegates(view) {
+  view.addEventListener('click', (event) => {
+    const disclosure = event.target.closest('.trace-disclosure');
+    if (disclosure && view.contains(disclosure)) {
+      event.stopPropagation();
+      const scrollTop = els.viewPane.scrollTop;
+      toggleTraceDisclosure(disclosure.dataset.traceDisclosure);
+      render();
+      els.viewPane.scrollTop = scrollTop;
+      return;
+    }
+    const copy = event.target.closest('.trace-copy-button');
+    if (copy && view.contains(copy)) {
+      event.stopPropagation();
+      const value = traceCopyValues.get(copy.dataset.traceCopy);
+      if (value == null) return;
+      copyText(value);
+      const original = copy.textContent;
+      copy.textContent = '✓';
+      setTimeout(() => { copy.textContent = original; }, 900);
+      return;
+    }
+    const entry = event.target.closest('.trace-entry[data-idx]');
+    if (entry && view.contains(entry)) selectRow(Number(entry.dataset.idx));
+  });
+}
+
 function renderTrace(trace) {
   traceCopyValues.clear();
   updateTraceControls();
   const items = filteredTraceItems(trace);
+  const ordered = state.traceOrder === 'newest' ? items.slice().reverse() : items;
   const tools = trace.stats ? trace.stats.toolCalls : 0;
   const headerMeta = [];
   if (trace.cwd) headerMeta.push(`<span title="Working directory">⌂ ${escapeHtml(trace.cwd)}</span>`);
   if (trace.id) headerMeta.push(`<span title="Session id">ID ${escapeHtml(trace.id)}</span>`);
   headerMeta.push(`<span>${items.length} items</span>`);
   if (tools) headerMeta.push(`<span>${tools} tool call${tools === 1 ? '' : 's'}</span>`);
-  const cards = items.map(renderTraceItem).join('');
-  els.viewPane.innerHTML = `<div class="trace-view trace-${escapeHtml(state.traceLayout)}">
-    <div class="trace-header-card">
-      <div class="trace-header-title"><span class="trace-agent-glyph">◉</span><strong>${escapeHtml(trace.title || `${trace.label} trace`)}</strong><span class="trace-format-badge">${escapeHtml(trace.label || trace.format)}</span></div>
-      <div class="trace-header-meta">${headerMeta.join(' · ')}</div>
-    </div>
-    <div class="trace-timeline">${cards || '<div class="trace-no-results">No trace items match the current filter.</div>'}</div>
-  </div>`;
+  const liveBadge = state.stream.live
+    ? '<span class="trace-live-badge" title="This file is still being written to"><span class="trace-live-dot"></span>LIVE</span>'
+    : '';
+  const headerHtml = `<div class="trace-header-title"><span class="trace-agent-glyph">◉</span><strong>${escapeHtml(trace.title || `${trace.label} trace`)}</strong><span class="trace-format-badge">${escapeHtml(trace.label || trace.format)}</span>${liveBadge}</div>
+      <div class="trace-header-meta">${headerMeta.join(' · ')}</div>`;
 
-  els.viewPane.querySelectorAll('.trace-disclosure').forEach((button) => {
-    button.addEventListener('click', (event) => {
-      event.stopPropagation();
-      const scrollTop = els.viewPane.scrollTop;
-      toggleTraceDisclosure(button.dataset.traceDisclosure);
-      render();
-      els.viewPane.scrollTop = scrollTop;
-    });
-  });
-  els.viewPane.querySelectorAll('.trace-copy-button').forEach((button) => {
-    button.addEventListener('click', (event) => {
-      event.stopPropagation();
-      const value = traceCopyValues.get(button.dataset.traceCopy);
-      if (value == null) return;
-      copyText(value);
-      const original = button.textContent;
-      button.textContent = '✓';
-      setTimeout(() => { button.textContent = original; }, 900);
-    });
-  });
-  els.viewPane.querySelectorAll('.trace-entry[data-idx]').forEach((entry) => {
-    entry.addEventListener('click', () => selectRow(Number(entry.dataset.idx)));
-  });
+  const fileKey = `${state.filePath || ''}|${state.traceLayout}|${state.traceOrder}`;
+  let view = els.viewPane.querySelector('.trace-view');
+  if (!view || traceRender.fileKey !== fileKey) {
+    els.viewPane.innerHTML = `<div class="trace-view trace-${escapeHtml(state.traceLayout)}">
+      <div class="trace-header-card">${headerHtml}</div>
+      <div class="trace-timeline"></div>
+    </div>`;
+    view = els.viewPane.querySelector('.trace-view');
+    bindTraceDelegates(view);
+    resetTraceRender();
+    traceRender.fileKey = fileKey;
+  } else if (traceRender.headerHtml !== headerHtml) {
+    const header = view.querySelector('.trace-header-card');
+    if (header) header.innerHTML = headerHtml;
+  }
+  traceRender.headerHtml = headerHtml;
+
+  const timeline = view.querySelector('.trace-timeline');
+  if (!ordered.length) {
+    timeline.innerHTML = '<div class="trace-no-results">No trace items match the current filter.</div>';
+    traceRender.keys = [];
+    traceRender.html = new Map();
+  } else {
+    patchTraceTimeline(timeline, ordered.map((item, position) => ({
+      key: traceItemKey(item, position),
+      html: renderTraceItem(item)
+    })));
+  }
+
+  updateTraceFollowUi();
   traceNavUpdate();
 }
 
@@ -1505,6 +1639,7 @@ function applyLoadedData(data, { preserveView = false } = {}) {
   state.errors = data.errors;
   state.truncated = data.truncated;
   state.trace = detectedTrace;
+  resetStream(data);
 
   if (!preserveView) {
     state.expanded = new Set();
@@ -1564,6 +1699,8 @@ function saveCurrentSession() {
     traceExpansion: state.traceExpansion,
     traceOpen: new Set(state.traceOpen),
     traceClosed: new Set(state.traceClosed),
+    traceOrder: state.traceOrder,
+    stream: Object.assign({}, state.stream),
     filter: state.filter,
     expanded: new Set(state.expanded),
     treeExpanded: new Set(state.treeExpanded),
@@ -1592,6 +1729,14 @@ function restoreSession(sess) {
   state.traceExpansion = sess.traceExpansion || 'expanded';
   state.traceOpen = new Set(sess.traceOpen || []);
   state.traceClosed = new Set(sess.traceClosed || []);
+  state.traceOrder = sess.traceOrder || state.traceOrder;
+  state.stream = Object.assign(
+    { offset: 0, index: 0, live: false, follow: true, pending: 0 },
+    sess.stream || {}
+  );
+  state.stream.live = false;
+  state.stream.pending = 0;
+  resetTraceRender();
   state.filter = sess.filter;
   state.expanded = new Set(sess.expanded);
   state.treeExpanded = new Set(sess.treeExpanded);
@@ -1630,6 +1775,8 @@ function clearActiveFile() {
   state.errors = [];
   state.truncated = false;
   state.trace = null;
+  resetStream(null);
+  resetTraceRender();
   state.expanded = new Set();
   state.treeExpanded = new Set();
   state.selectedIndex = null;
@@ -1776,7 +1923,163 @@ async function loadMore() {
   recomputeAllKeys();
   // recompute truncated flag: if we got fewer than requested and we've reached end, not truncated
   if (data.lines.length < count) state.truncated = false;
+  // Load more works in line numbers, so the tail read's byte offset no longer
+  // matches what we hold. Clear it: the next external change takes the full
+  // reload path, which re-seeds the offset.
+  state.stream.offset = 0;
+  state.stream.index = 0;
   render();
+}
+
+// ---- Live streaming ----
+// The main process watches the open file; when it grows we read only the
+// appended bytes and splice them onto what we already hold. That keeps a
+// session file an agent is still writing cheap to follow, and lets the trace
+// view stay pinned to the newest entry.
+const LIVE_IDLE_MS = 45000;
+let liveIdleTimer = 0;
+let appendInFlight = false;
+let appendQueued = false;
+
+function resetStream(data) {
+  clearTimeout(liveIdleTimer);
+  state.stream.offset = data && Number.isFinite(data.readOffset) ? data.readOffset : 0;
+  state.stream.index = data && Number.isFinite(data.readIndex) ? data.readIndex : 0;
+  state.stream.live = false;
+  state.stream.pending = 0;
+}
+
+function markLive() {
+  state.stream.live = true;
+  clearTimeout(liveIdleTimer);
+  liveIdleTimer = setTimeout(() => {
+    state.stream.live = false;
+    if (state.view === 'trace' && state.trace) render();
+    else updateTraceFollowUi();
+  }, LIVE_IDLE_MS);
+}
+
+// Distance in pixels from the edge where new entries arrive: the bottom when
+// the timeline runs oldest first, the top when it runs newest first.
+function newestEdgeDistance() {
+  const pane = els.viewPane;
+  if (state.traceOrder === 'newest') return pane.scrollTop;
+  return Math.max(0, pane.scrollHeight - pane.clientHeight - pane.scrollTop);
+}
+
+function scrollToNewest(smooth) {
+  const pane = els.viewPane;
+  const top = state.traceOrder === 'newest' ? 0 : pane.scrollHeight;
+  pane.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' });
+  state.stream.follow = true;
+  state.stream.pending = 0;
+  updateTraceFollowUi();
+}
+
+function updateTraceFollowUi() {
+  if (!els.traceFollow) return;
+  const streaming = state.view === 'trace' && !!state.trace &&
+    (state.stream.live || state.stream.pending > 0);
+  if (!streaming || state.stream.follow) {
+    els.traceFollow.hidden = true;
+    return;
+  }
+  const arrow = state.traceOrder === 'newest' ? '↑' : '↓';
+  const count = state.stream.pending;
+  els.traceFollow.hidden = false;
+  els.traceFollow.classList.toggle('at-top', state.traceOrder === 'newest');
+  els.traceFollow.textContent = count > 0
+    ? `${arrow} ${count} new ${count === 1 ? 'entry' : 'entries'}`
+    : `${arrow} Follow live`;
+}
+
+// Called from the view pane's scroll handler: leaving the newest edge pauses
+// following, coming back resumes it.
+function updateFollowFromScroll() {
+  if (state.view !== 'trace' || !state.trace) return;
+  const atEdge = newestEdgeDistance() <= 24;
+  if (atEdge === state.stream.follow) {
+    if (atEdge && state.stream.pending) {
+      state.stream.pending = 0;
+      updateTraceFollowUi();
+    }
+    return;
+  }
+  state.stream.follow = atEdge;
+  if (atEdge) state.stream.pending = 0;
+  updateTraceFollowUi();
+}
+
+async function appendFromDisk() {
+  if (!state.filePath || !window.api.readTail) return;
+  if (appendInFlight) {
+    appendQueued = true;
+    return;
+  }
+  appendInFlight = true;
+  try {
+    const res = await window.api.readTail(state.filePath, state.stream.offset, state.stream.index);
+    if (!res || res.reset || res.truncated) {
+      appendQueued = false;
+      await reloadFile();
+      return;
+    }
+    state.sizeBytes = res.sizeBytes;
+    state.stream.offset = res.readOffset;
+    state.stream.index = res.readIndex;
+    if (!res.lines.length) {
+      state.totalLines = Math.max(state.totalLines, res.totalLines);
+      setFileInfo(`${state.fileName} · ${formatBytes(state.sizeBytes)} · ${state.totalLines} lines`);
+      return;
+    }
+    // The previous read may have ended on a half-written line; the tail read
+    // hands it back complete, so drop anything from that index on.
+    const from = res.lines[0].index;
+    state.parsedLines = state.parsedLines.filter((line) => line.index < from);
+    state.errors = state.errors.filter((err) => err.index < from);
+    state.parsedLines.push(...res.lines);
+    state.errors.push(...res.errors);
+    state.totalLines = res.totalLines;
+
+    const before = state.trace ? state.trace.items.length : 0;
+    recomputeTrace();
+    recomputeAllKeys();
+    const after = state.trace ? state.trace.items.length : 0;
+    markLive();
+    if (state.view === 'trace' && state.trace && !state.stream.follow) {
+      state.stream.pending += Math.max(0, after - before);
+    }
+    setFileInfo(`${state.fileName} · ${formatBytes(state.sizeBytes)} · ${state.totalLines} lines`);
+    const isTrace = state.view === 'trace' && !!state.trace;
+    // Only the trace view patches itself; the other views redraw, so their
+    // scroll position has to be put back by hand.
+    const scrollTop = els.viewPane.scrollTop;
+    const scrollLeft = els.viewPane.scrollLeft;
+    render();
+    if (!isTrace) {
+      els.viewPane.scrollTop = scrollTop;
+      els.viewPane.scrollLeft = scrollLeft;
+    } else if (state.stream.follow) {
+      scrollToNewest(false);
+    }
+  } catch (err) {
+    showToast('Live update failed: ' + (err && err.message ? err.message : 'error'), { kind: 'error' });
+  } finally {
+    appendInFlight = false;
+    if (appendQueued) {
+      appendQueued = false;
+      appendFromDisk();
+    }
+  }
+}
+
+// A grown file is streamed; anything else (rewrite, shrink, or a file whose
+// first read was cut off at maxLines) goes through the full reload path.
+function handleFileChanged(info) {
+  const canStream = !!window.api.readTail && !state.truncated && !state.editMode &&
+    state.stream.offset > 0 && info && Number.isFinite(info.size) && info.size >= state.stream.offset;
+  if (canStream) appendFromDisk();
+  else reloadFile();
 }
 
 function setEditMode(on) {
@@ -2229,6 +2532,10 @@ els.traceControls.querySelectorAll('[data-trace-layout]').forEach((button) => {
 els.traceControls.querySelectorAll('[data-trace-expansion]').forEach((button) => {
   button.addEventListener('click', () => setTraceExpansion(button.dataset.traceExpansion));
 });
+els.traceControls.querySelectorAll('[data-trace-order]').forEach((button) => {
+  button.addEventListener('click', () => setTraceOrder(button.dataset.traceOrder));
+});
+els.traceFollow.addEventListener('click', () => scrollToNewest(true));
 
 // Trace message navigation: buttons, scroll tracking, and [ / ] shortcuts.
 els.traceNavUp.addEventListener('click', () => traceNavStep(-1));
@@ -2254,6 +2561,7 @@ els.viewPane.addEventListener('scroll', () => {
       if (scrolledAway) traceNavJumpLock = 0;
       else return; // animation still in flight
     }
+    updateFollowFromScroll();
     traceNavUpdate();
   });
 }, { passive: true });
@@ -2519,7 +2827,7 @@ if (window.api.onFileChanged) {
       showToast('File was deleted on disk', { kind: 'error' });
       return;
     }
-    reloadFile();
+    handleFileChanged(info);
   });
 }
 
@@ -2583,6 +2891,7 @@ function setView(v) {
 }
 
 // Initial render
+restoreTraceOrder();
 if (window.api && window.api.updateRecent) window.api.updateRecent(state.recent);
 render();
 console.log('[jsonl-viewer] renderer ready, view=' + state.view);

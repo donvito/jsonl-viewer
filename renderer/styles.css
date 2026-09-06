@@ -1129,6 +1129,69 @@ table.jsonl tr.error td .err-badge {
   100% { box-shadow: 0 0 0 0 transparent; }
 }
 
+.trace-source-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 1px 5px;
+  border: 1px solid var(--green);
+  color: var(--green);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+/* Live streaming — badge on the trace header, follow pill over the pane */
+.trace-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border: 1px solid var(--green);
+  border-radius: 0;
+  background: var(--bg-elev);
+  color: var(--green);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.trace-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: trace-live-pulse 1.6s ease-in-out infinite;
+}
+@keyframes trace-live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.75); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .trace-live-dot { animation: none; }
+}
+.trace-follow-pill {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 7;
+  padding: 7px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+}
+.trace-follow-pill:hover { background: var(--accent); color: var(--primary-fg); }
+/* Newest first puts the arriving entries at the top, so the pill goes there */
+.trace-follow-pill.at-top { bottom: auto; top: 14px; }
+.content:has(> .sidebar:not([hidden])) .trace-follow-pill { left: calc(50% - 190px); }
+
 /* Trace message navigation — jump between user/assistant turns */
 .trace-nav {
   position: absolute;

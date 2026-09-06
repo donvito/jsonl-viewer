@@ -86,6 +86,10 @@
           <button type="button" data-trace-expansion="collapsed">Collapsed</button>
           <button type="button" data-trace-expansion="expanded" class="active">Expanded</button>
         </div>
+        <div class="trace-segmented" aria-label="Trace order">
+          <button type="button" data-trace-order="oldest" class="active" title="Oldest entry at the top">Oldest first</button>
+          <button type="button" data-trace-order="newest" title="Newest entry at the top">Newest first</button>
+        </div>
       </div>
       <div class="col-picker">
         <button id="colToggle" class="btn" hidden>Columns</button>
@@ -127,6 +131,7 @@
         </div>
         <div id="sidebarBody" class="sidebar-body"></div>
       </aside>
+      <button id="traceFollow" class="trace-follow-pill" type="button" hidden></button>
       <div id="traceNav" class="trace-nav" hidden>
         <button id="traceNavUp" class="trace-nav-btn" type="button" title="Previous message ( [ )" aria-label="Previous user or assistant message">▲</button>
         <span id="traceNavPos" class="trace-nav-pos">– / –</span>

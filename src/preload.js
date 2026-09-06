@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('api', {
   readFile: (filePath, maxLines) => ipcRenderer.invoke('file:read', filePath, maxLines),
   readRange: (filePath, startLine, count) =>
     ipcRenderer.invoke('file:readRange', filePath, startLine, count),
+  readTail: (filePath, fromByte, fromIndex) =>
+    ipcRenderer.invoke('file:readTail', filePath, fromByte, fromIndex),
   saveFile: (defaultName) => ipcRenderer.invoke('dialog:saveFile', defaultName),
   writeFile: (filePath, contents) => ipcRenderer.invoke('file:write', filePath, contents),
   // Electron 32+ removed File.path; resolve dropped File objects here.

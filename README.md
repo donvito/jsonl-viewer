@@ -32,7 +32,7 @@ For development with detached DevTools:
 npm run dev
 ```
 
-Then click **Open File** (or drag a file in) and pick `test/sample.jsonl` from this repo, or any of your own `.jsonl` / `.ndjson` / `.json` / `.log` / `.txt` files. Hugging Face session traces from STS, Pi, Codex, Claude Code, and Hermes are detected automatically and open in the Traces view. The toolbar's **Traces** menu also finds recent sessions in the standard Codex, Claude Code, Pi, and Hermes locations.
+Then click **Open File** (or drag a file in) and pick `test/sample.jsonl` from this repo, or any of your own `.jsonl` / `.ndjson` / `.json` / `.log` / `.txt` files. Hugging Face session traces from STS, Pi, Codex, Claude Code, and Hermes are detected automatically and open in the Traces view. The toolbar's **Traces** menu also finds recent sessions in the standard Codex, Claude Code, Pi, and Hermes locations. Open a session while the agent is still running and it streams live — new entries appear as they are written, and **Newest first** puts the latest one at the top.
 
 ## More
 

@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, clipboard, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { readJsonlFile, readJsonlTail } = require('./jsonl-read');
 
 const DATA_EXTS = ['.jsonl', '.ndjson', '.json', '.log', '.txt'];
 const TRACE_FILE_EXTS = ['.jsonl', '.ndjson'];
@@ -38,17 +39,30 @@ let recentFiles = [];
 let themeList = [];
 let currentTheme = 'dark';
 
-// Watch the open file's directory so atomic editor saves (temp + rename)
-// still notify the renderer. Our own writes are ignored via ignoreUntil
-// plus a last-known mtime/size stamp.
+// Three watchers, because no single one covers every way a file changes:
+//
+//   fileWatcher — the open file itself. This is the one that sees an agent
+//     appending to its session log. On macOS a directory watch never fires
+//     for an in-place append, so without this a live trace looks frozen.
+//   dirWatcher  — the containing directory, which is what reports atomic
+//     editor saves (write temp + rename) and deletions. A rename swaps the
+//     inode out from under fileWatcher, so it gets re-armed.
+//   pollTimer   — a slow stat backstop for filesystems that give us neither
+//     (network shares, some FUSE mounts). Cheap: one stat, and emitIfChanged
+//     drops it when nothing moved.
+//
+// Our own writes are ignored via ignoreUntil plus a last-known mtime/size stamp.
 let watchedPath = null;
 let dirWatcher = null;
+let fileWatcher = null;
+let pollTimer = null;
 let changeTimer = null;
 let ignoreUntil = 0;
 let lastStat = { mtimeMs: 0, size: -1 };
 
 const IS_WIN = process.platform === 'win32';
 const WATCH_DEBOUNCE_MS = IS_WIN ? 350 : 180;
+const WATCH_POLL_MS = 1000;
 const STAT_RETRY_MS = IS_WIN ? 100 : 70;
 const STAT_RETRIES = IS_WIN ? 8 : 4;
 
@@ -74,17 +88,42 @@ function isRetryableFsError(err) {
   );
 }
 
+function closeFileWatcher() {
+  if (fileWatcher) {
+    fileWatcher.close();
+    fileWatcher = null;
+  }
+}
+
 function stopWatching() {
   if (changeTimer) {
     clearTimeout(changeTimer);
     changeTimer = null;
   }
-  if (dirWatcher) {
-    dirWatcher.close();
-    dirWatcher = null;
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
   }
+  closeDirWatcher();
+  closeFileWatcher();
   watchedPath = null;
   lastStat = { mtimeMs: 0, size: -1 };
+}
+
+// Watching the file directly is what catches appends. The handle follows the
+// inode, so it is re-armed whenever the directory reports a rename.
+function armFileWatcher(resolved) {
+  closeFileWatcher();
+  try {
+    fileWatcher = fs.watch(resolved, () => {
+      if (Date.now() < ignoreUntil) return;
+      scheduleExternalChange();
+    });
+    fileWatcher.on('error', () => closeFileWatcher());
+  } catch {
+    // The file may be gone or unwatchable; the directory watch and the poll
+    // still cover it.
+  }
 }
 
 function refreshLastStat(filePath) {
@@ -142,15 +181,31 @@ function startWatching(filePath) {
   refreshLastStat(resolved);
   const dir = path.dirname(resolved);
   const base = path.basename(resolved);
+  armFileWatcher(resolved);
   try {
     dirWatcher = fs.watch(dir, (eventType, filename) => {
       if (filename && !sameFileName(path.basename(String(filename)), base)) return;
+      // An atomic save replaced the file: the old handle now points at a
+      // discarded inode, so follow the new one.
+      if (eventType === 'rename') armFileWatcher(resolved);
       if (Date.now() < ignoreUntil) return;
       scheduleExternalChange();
     });
-    dirWatcher.on('error', () => stopWatching());
+    dirWatcher.on('error', () => closeDirWatcher());
   } catch {
-    watchedPath = null;
+    // A missing or unreadable directory still leaves the file watch and the
+    // poll in place.
+  }
+  pollTimer = setInterval(() => {
+    if (Date.now() < ignoreUntil) return;
+    emitIfChanged();
+  }, WATCH_POLL_MS);
+}
+
+function closeDirWatcher() {
+  if (dirWatcher) {
+    dirWatcher.close();
+    dirWatcher = null;
   }
 }
 
@@ -595,79 +650,6 @@ ipcMain.handle('dialog:openFile', async () => {
   return result.filePaths[0];
 });
 
-function readJsonlFile(filePath, maxLines = 5000) {
-  return new Promise((resolve, reject) => {
-    let stat;
-    try {
-      stat = fs.statSync(filePath);
-    } catch (err) {
-      reject(err);
-      return;
-    }
-    const name = path.basename(filePath);
-
-    const parsedLines = [];
-    const errors = [];
-    let totalLines = 0;
-    let leftover = '';
-    let truncated = false;
-
-    const stream = fs.createReadStream(filePath, { encoding: 'utf8' });
-
-    stream.on('data', (chunk) => {
-      leftover += chunk;
-      let idx;
-      while ((idx = leftover.indexOf('\n')) !== -1) {
-        const raw = leftover.slice(0, idx).replace(/\r$/, '');
-        leftover = leftover.slice(idx + 1);
-        totalLines++;
-        if (parsedLines.length < maxLines) {
-          const trimmed = raw.trim();
-          if (trimmed === '') continue;
-          try {
-            parsedLines.push({ index: totalLines - 1, raw: trimmed, value: JSON.parse(trimmed) });
-          } catch (err) {
-            parsedLines.push({ index: totalLines - 1, raw: trimmed, value: null, parseError: err.message });
-            errors.push({ index: totalLines - 1, message: err.message });
-          }
-        } else {
-          truncated = true;
-        }
-      }
-    });
-
-    stream.on('end', () => {
-      // Handle trailing line without newline
-      if (leftover.trim() !== '') {
-        totalLines++;
-        const trimmed = leftover.trim();
-        if (parsedLines.length < maxLines) {
-          try {
-            parsedLines.push({ index: totalLines - 1, raw: trimmed, value: JSON.parse(trimmed) });
-          } catch (err) {
-            parsedLines.push({ index: totalLines - 1, raw: trimmed, value: null, parseError: err.message });
-            errors.push({ index: totalLines - 1, message: err.message });
-          }
-        } else {
-          truncated = true;
-        }
-      }
-      resolve({
-        path: filePath,
-        name,
-        sizeBytes: stat.size,
-        totalLines,
-        parsedLines,
-        errors,
-        truncated,
-        maxLines
-      });
-    });
-
-    stream.on('error', (err) => reject(err));
-  });
-}
-
 async function readJsonlFileWithRetry(filePath, maxLines = 5000) {
   let lastErr;
   for (let attempt = 0; attempt <= STAT_RETRIES; attempt++) {
@@ -683,12 +665,30 @@ async function readJsonlFileWithRetry(filePath, maxLines = 5000) {
 }
 
 // ---- IPC: read a file as text, streamed line-by-line summary ----
-// Returns { path, name, sizeBytes, totalLines, parsedLines, errors, truncated }
-// Parses up to maxLines lines to keep the renderer snappy on huge files.
+// Returns { path, name, sizeBytes, totalLines, parsedLines, errors, truncated,
+// readOffset, readIndex }. Parses up to maxLines lines to keep the renderer
+// snappy on huge files; readOffset/readIndex seed the streaming tail read.
 ipcMain.handle('file:read', async (event, filePath, maxLines = 5000) => {
   const result = await readJsonlFileWithRetry(filePath, maxLines);
   startWatching(filePath);
   return result;
+});
+
+// ---- IPC: read only what was appended since the last read (live tail) ----
+// Used while an agent is still writing its session file, so a growing trace
+// costs one small read per change instead of a full re-parse.
+ipcMain.handle('file:readTail', async (_e, filePath, fromByte, fromIndex) => {
+  let lastErr;
+  for (let attempt = 0; attempt <= STAT_RETRIES; attempt++) {
+    try {
+      return await readJsonlTail(filePath, fromByte, fromIndex);
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryableFsError(err) || attempt === STAT_RETRIES) throw err;
+      await new Promise((r) => setTimeout(r, STAT_RETRY_MS));
+    }
+  }
+  throw lastErr;
 });
 
 // ---- IPC: read a specific line range from a file (for lazy loading) ----
