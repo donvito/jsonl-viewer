@@ -2065,7 +2065,14 @@ table.jsonl tr.error td .err-badge {
   cursor: pointer;
   font-size: 12px;
 }
-.ctx-menu button:hover { background: var(--btn-hover); color: var(--accent); }
+.ctx-menu button:hover:not(:disabled) { background: var(--btn-hover); color: var(--accent); }
+/* Greyed rather than removed, so the menu keeps the same shape whichever tab
+   is right-clicked. */
+.ctx-menu button:disabled {
+  color: var(--text-faint);
+  cursor: default;
+  opacity: 0.55;
+}
 
 /* Selected row highlight */
 table.jsonl tr.selected td { background: var(--selected) !important; }

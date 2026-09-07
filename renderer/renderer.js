@@ -2243,6 +2243,73 @@ async function closeFile(filePath) {
   renderExplorer();
 }
 
+// Closes a set of files as one action. closeFile handles a single tab; doing
+// it in a loop would prompt per dirty file and reload the next survivor after
+// every removal.
+async function closeFiles(paths) {
+  const targets = [];
+  for (const filePath of paths) {
+    const entry = findOpen(filePath);
+    if (entry && !targets.includes(entry)) targets.push(entry);
+  }
+  if (!targets.length) return;
+
+  const dirty = targets.filter((entry) => entry.dirty);
+  if (dirty.length) {
+    const message = dirty.length === 1
+      ? 'Discard unsaved changes to ' + dirty[0].name + '?'
+      : 'Discard unsaved changes to ' + dirty.length + ' files?\n\n' + dirty.map((d) => d.name).join('\n');
+    if (!window.confirm(message)) return;
+  }
+
+  const closingActive = !!state.filePath && targets.some((entry) => samePath(entry.path, state.filePath));
+  for (const entry of targets) {
+    explorer.openFiles = explorer.openFiles.filter((f) => !samePath(f.path, entry.path));
+    delete explorer.sessions[entry.path];
+  }
+  if (closingActive) {
+    state.filePath = null;
+    const next = explorer.openFiles[explorer.openFiles.length - 1];
+    if (next) await openFile(next.path);
+    else clearActiveFile();
+  }
+  renderExplorer();
+}
+
+function openFilePaths() {
+  return explorer.openFiles.map((f) => f.path);
+}
+
+function closeOtherFiles(filePath) {
+  return closeFiles(openFilePaths().filter((p) => !samePath(p, filePath)));
+}
+
+function closeFilesToRight(filePath) {
+  const paths = openFilePaths();
+  const index = paths.findIndex((p) => samePath(p, filePath));
+  return index < 0 ? Promise.resolve() : closeFiles(paths.slice(index + 1));
+}
+
+function closeAllFiles() {
+  return closeFiles(openFilePaths());
+}
+
+// Right-clicking a tab, the way an editor does it. Tabs run left to right, so
+// "to the Right" means something here; the explorer list is nested and sorted,
+// so it keeps its simpler menu.
+function showFileTabMenu(x, y, filePath) {
+  const paths = openFilePaths();
+  const index = paths.findIndex((p) => samePath(p, filePath));
+  const others = paths.length - 1;
+  const toRight = index < 0 ? 0 : paths.length - index - 1;
+  showCtx(x, y, [
+    { label: 'Close', onClick: () => closeFile(filePath) },
+    { label: 'Close Others', disabled: others < 1, onClick: () => closeOtherFiles(filePath) },
+    { label: 'Close to the Right', disabled: toRight < 1, onClick: () => closeFilesToRight(filePath) },
+    { label: 'Close All', onClick: () => closeAllFiles() }
+  ]);
+}
+
 let reloadInFlight = false;
 let reloadQueued = false;
 let pendingExternalChange = false;
@@ -2763,6 +2830,10 @@ function renderFileTabs() {
     tab.setAttribute('role', 'tab');
     tab.setAttribute('aria-selected', String(active));
     tab.tabIndex = active ? 0 : -1;
+    tab.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showFileTabMenu(e.clientX, e.clientY, file.path);
+    });
 
     const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     icon.setAttribute('class', 'file-tab-icon');
@@ -3189,7 +3260,7 @@ function hideCtx() {
 
 function showCtx(x, y, items) {
   els.ctxMenu.innerHTML = items.map((it) =>
-    `<button type="button" data-label="${escapeHtml(it.label)}">${escapeHtml(it.label)}</button>`
+    `<button type="button" data-label="${escapeHtml(it.label)}"${it.disabled ? ' disabled' : ''}>${escapeHtml(it.label)}</button>`
   ).join('');
   els.ctxMenu.hidden = false;
   // Keep menu within viewport
@@ -3200,6 +3271,7 @@ function showCtx(x, y, items) {
   els.ctxMenu.style.top = Math.min(y, maxY) + 'px';
   els.ctxMenu.querySelectorAll('button').forEach((btn) => {
     btn.addEventListener('click', () => {
+      if (btn.disabled) return;
       const label = btn.dataset.label;
       const item = items.find((i) => i.label === label);
       hideCtx();
