@@ -669,15 +669,27 @@ html, body {
   letter-spacing: 0.5px;
   text-transform: uppercase;
   color: var(--text-faint);
-  flex: 1;
+  /* Never shrink: a section label is a direct child of the column
+     .explorer-section, where `flex: 1` would set a 0 basis and let a tall
+     list squeeze the label to half its line height. */
+  flex: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Inside the head the label shares a row with the icon buttons, so there it
+   does fill the free space — that is where `flex: 1` belongs. */
+.explorer-section-head .explorer-section-label {
+  flex: 1;
+  min-width: 0;
 }
 .explorer-list,
 .explorer-tree {
   overflow: auto;
 }
+/* Trace rows are two lines tall, so a handful of open files could otherwise
+   crowd the folder tree out of a short window. The list scrolls instead. */
+#explorerOpenList { max-height: 45vh; }
 .explorer-tree-section { flex: 1 1 auto; }
 .explorer-tree { flex: 1 1 auto; }
 .explorer-empty {
