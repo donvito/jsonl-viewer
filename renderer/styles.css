@@ -1201,6 +1201,24 @@ table.jsonl tr.error td .err-badge {
   font-family: var(--mono);
   font-size: 10px;
 }
+/* Reasoning effort on an assistant turn. Colour tracks the level so a
+   session that shifts gears is visible while scrolling. */
+.trace-effort {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.effort-minimal, .effort-low { color: var(--text-faint); border-color: var(--text-faint); }
+.effort-medium { color: var(--accent); border-color: var(--accent); }
+.effort-high, .effort-xhigh, .effort-max { color: var(--orange); border-color: var(--orange); }
 .trace-header-meta {
   display: flex;
   flex-wrap: wrap;

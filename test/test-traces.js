@@ -240,5 +240,75 @@ linked = traceParser.linkTraces([
 assert.deepStrictEqual(childKeys(nodeFor(linked, 'first.jsonl')), ['kid.jsonl']);
 assert.deepStrictEqual(childKeys(nodeFor(linked, 'second.jsonl')), []);
 
+// ---- reasoning effort ----
+// Read from the agent's own turn_context, never inferred from the model name,
+// the filename, the parent trace, world_state or any config default.
+function codexWithTurnContext(turnContextPayload, meta) {
+  return [Object.assign({}, codex[0], { payload: Object.assign({}, codex[0].payload, meta || {}) }),
+          { type: 'turn_context', payload: turnContextPayload }]
+    .concat(codex.slice(1));
+}
+
+// collaboration_mode.settings.reasoning_effort is preferred
+const rootAstra = run('root astra low', codexWithTurnContext({
+  model: 'gpt-6-astra',
+  collaboration_mode: { settings: { model: 'gpt-6-astra', reasoning_effort: 'low' } },
+  effort: 'low'
+}, { thread_source: 'user' }), 'codex');
+assert.strictEqual(rootAstra.reasoningEffort, 'low');
+assert.strictEqual(rootAstra.model, 'gpt-6-astra');
+assert.strictEqual(rootAstra.traceType, 'main');
+
+// Luna subagent at medium, from collaboration_mode.settings with no top-level
+// `effort` present at all.
+const lunaSub = run('luna subagent medium', codexWithTurnContext({
+  model: 'gpt-5.6-luna',
+  collaboration_mode: { settings: { model: 'gpt-5.6-luna', reasoning_effort: 'medium' } }
+}, { thread_source: 'subagent', parent_thread_id: 'p1', agent_role: 'explorer' }), 'codex');
+assert.strictEqual(lunaSub.reasoningEffort, 'medium');
+assert.strictEqual(lunaSub.model, 'gpt-5.6-luna');
+assert.strictEqual(lunaSub.traceType, 'subagent');
+
+// falls back to payload.effort when there is no collaboration_mode
+const fallback = run('effort fallback', codexWithTurnContext({ model: 'gpt-6-astra', effort: 'high' }), 'codex');
+assert.strictEqual(fallback.reasoningEffort, 'high');
+
+// The child's own settings win over inherited root state in `effort`.
+const inherited = run('child settings beat inherited effort', codexWithTurnContext({
+  model: 'gpt-5.6-luna',
+  effort: 'low', // inherited from the root turn
+  collaboration_mode: { settings: { model: 'gpt-5.6-luna', reasoning_effort: 'medium' } }
+}, { thread_source: 'subagent', parent_thread_id: 'p1' }), 'codex');
+assert.strictEqual(inherited.reasoningEffort, 'medium');
+
+// A world_state record carrying a different effort must never be consulted.
+const withWorldState = run('world_state ignored', [
+  codex[0],
+  { type: 'world_state', payload: { full: true, state: { reasoning_effort: 'xhigh', effort: 'xhigh' } } },
+  { type: 'turn_context', payload: { model: 'gpt-5.6-luna', collaboration_mode: { settings: { reasoning_effort: 'medium' } } } }
+].concat(codex.slice(1)), 'codex');
+assert.strictEqual(withWorldState.reasoningEffort, 'medium');
+
+// Absent effort is omitted, not guessed — including from a model name that
+// happens to contain a level-like word.
+const noEffort = run('no effort', codexWithTurnContext({ model: 'gpt-6-astra-high' }), 'codex');
+assert.strictEqual(noEffort.reasoningEffort, null);
+assert.deepStrictEqual(noEffort.efforts, []);
+assert.strictEqual(codexTrace.reasoningEffort, null);
+
+// Later turns win, and every distinct value is kept in order.
+const shifting = run('effort changes mid-session', [
+  codex[0],
+  { type: 'turn_context', payload: { model: 'gpt-6-astra', effort: 'low' } },
+  { type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'first' }] } },
+  { type: 'turn_context', payload: { model: 'gpt-6-astra', effort: 'high' } },
+  { type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'second' }] } }
+], 'codex');
+assert.strictEqual(shifting.reasoningEffort, 'high');
+assert.deepStrictEqual(shifting.efforts, ['low', 'high']);
+// Per-turn values stay on the items, so the shift is visible in the timeline.
+const assistantEfforts = shifting.items.filter((i) => i.kind === 'assistant').map((i) => i.effort);
+assert.deepStrictEqual(assistantEfforts, ['low', 'high']);
+
 assert.strictEqual(traceParser.detect([{ type: 'user', message: 'ordinary application log' }]), null);
 console.log('All trace assertions passed ✅');

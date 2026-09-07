@@ -421,6 +421,7 @@
       timestamp: asTimestamp(opts.timestamp !== undefined ? opts.timestamp : record && record.value && record.value.timestamp),
       model: opts.model || null,
       provider: opts.provider || null,
+      effort: opts.effort || null,
       usage: normalizeUsage(opts.usage),
       label: opts.label || null,
       metadata: opts.metadata || {},
@@ -525,7 +526,7 @@
     let outputTokens = 0;
     for (const item of trace.items) {
       item.sourceLines = Array.from(new Set(item.sourceLines.filter((line) => line != null))).sort((a, b) => a - b);
-      item.searchText = [item.kind, item.role, item.model, item.provider, item.label]
+      item.searchText = [item.kind, item.role, item.model, item.provider, item.effort, item.label]
         .concat(item.blocks.reduce((parts, block) => {
           parts.push(displayTextForBlock(block));
           if (block.result) parts.push(stringifyValue(block.result.output));
@@ -744,6 +745,19 @@
     return isObject(record.value.payload) ? record.value.payload : {};
   }
 
+  // Reasoning effort comes from the agent's own turn_context, and from
+  // collaboration_mode.settings first: a subagent rollout can carry inherited
+  // root state in the top-level `effort`, so that is only the fallback.
+  // world_state and every other record is ignored on purpose — nothing here
+  // is inferred from the model name, the filename or the parent trace.
+  function codexEffort(payload) {
+    if (!isObject(payload)) return null;
+    const settings = isObject(payload.collaboration_mode) ? payload.collaboration_mode.settings : null;
+    const own = isObject(settings) ? nonEmptyString(settings.reasoning_effort) : null;
+    if (own) return own;
+    return nonEmptyString(payload.effort) || nonEmptyString(payload.reasoning_effort);
+  }
+
   function codexReasoningText(summary) {
     if (typeof summary === 'string') return summary;
     if (!Array.isArray(summary)) return contentText(summary);
@@ -760,6 +774,7 @@
       role: opts.role || 'assistant',
       model: opts.model,
       provider: opts.provider,
+      effort: opts.effort,
       timestamp: opts.timestamp || record.value.timestamp,
       label: opts.label,
       metadata: opts.metadata
@@ -782,8 +797,13 @@
     const registry = createRegistry();
     let currentModel = headerPayload.model || null;
     let currentProvider = headerPayload.model_provider || null;
+    let currentEffort = null;
     let currentTurnId = null;
     let currentAssistant = null;
+    // The trace-level effort is the last turn_context value seen; `efforts`
+    // keeps every distinct value in order, since a session can change gears.
+    trace.reasoningEffort = null;
+    trace.efforts = [];
 
     function newUser(record, text) {
       const previous = trace.items[trace.items.length - 1];
@@ -800,7 +820,7 @@
 
     function assistantFor(record, forceNew) {
       if (!forceNew && currentAssistant) return currentAssistant;
-      currentAssistant = makeItem('assistant', record, { role: 'assistant', model: currentModel, provider: currentProvider });
+      currentAssistant = makeItem('assistant', record, { role: 'assistant', model: currentModel, provider: currentProvider, effort: currentEffort });
       addItem(trace, currentAssistant);
       return currentAssistant;
     }
@@ -814,6 +834,20 @@
       if (value.type === 'turn_context') {
         currentModel = payload.model || currentModel;
         currentProvider = payload.model_provider || currentProvider;
+        const effort = codexEffort(payload);
+        if (effort) {
+          currentEffort = effort;
+          trace.reasoningEffort = effort;
+          if (!trace.efforts.includes(effort)) trace.efforts.push(effort);
+        }
+        // Consecutive assistant output merges into one card, which would hide
+        // a mid-session change of model or effort behind the first turn's
+        // values. Start a new card when either actually changes; a session
+        // that keeps one setting renders exactly as it did before.
+        if (currentAssistant &&
+            (currentAssistant.model !== currentModel || currentAssistant.effort !== currentEffort)) {
+          currentAssistant = null;
+        }
         if (payload.cwd) trace.cwd = payload.cwd;
         continue;
       }
@@ -833,7 +867,7 @@
             ? last.blocks.filter((block) => block.kind === 'text').map((block) => block.text).join('\n').trim().toLowerCase()
             : '';
           if (last && last.kind === 'assistant' && lastText === String(text).trim().toLowerCase()) continue;
-          currentAssistant = addCodexTextItem(trace, record, text, { kind: 'assistant', role: 'assistant', model: currentModel, provider: currentProvider });
+          currentAssistant = addCodexTextItem(trace, record, text, { kind: 'assistant', role: 'assistant', model: currentModel, provider: currentProvider, effort: currentEffort });
           continue;
         }
         if (type === 'token_count') {

@@ -1243,7 +1243,7 @@ function renderTraceItem(item) {
   if (usage) metadata.push(`<span class="trace-usage">${escapeHtml(usage)}</span>`);
   if (item.metadata && item.metadata.durationMs != null) metadata.push(`<span class="trace-usage">${escapeHtml(String(item.metadata.durationMs))} ms</span>`);
   if (item.metadata && item.metadata.costUsd != null) metadata.push(`<span class="trace-usage">$${escapeHtml(Number(item.metadata.costUsd).toFixed(4))}</span>`);
-  const identity = `<span class="trace-role-glyph">${traceRoleGlyph(item)}</span><strong>${escapeHtml(traceRoleLabel(item))}</strong>${model ? `<span class="trace-entry-model">${escapeHtml(model)}</span>` : ''}${item.timestamp ? `<time class="trace-entry-time">${escapeHtml(item.timestamp)}</time>` : ''}`;
+  const identity = `<span class="trace-role-glyph">${traceRoleGlyph(item)}</span><strong>${escapeHtml(traceRoleLabel(item))}</strong>${model ? `<span class="trace-entry-model">${escapeHtml(model)}</span>` : ''}${item.effort ? `<span class="trace-effort effort-${escapeHtml(item.effort)}" title="Reasoning effort">${escapeHtml(item.effort)}</span>` : ''}${item.timestamp ? `<time class="trace-entry-time">${escapeHtml(item.timestamp)}</time>` : ''}`;
   return `<article class="trace-entry trace-entry-${escapeHtml(item.kind)}"${idx}>
     <header class="trace-entry-header">
       <div class="trace-entry-identity">${identity}</div>
@@ -1468,6 +1468,11 @@ function traceNodeLabel(node) {
   return parts.join(' · ');
 }
 
+function titleCase(value) {
+  const text = String(value || '');
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : '';
+}
+
 function traceTypeOf(threadSource) {
   return window.traceParser && window.traceParser.getTraceType
     ? window.traceParser.getTraceType(threadSource)
@@ -1530,6 +1535,16 @@ function renderTrace(trace) {
   const headerMeta = [];
   if (trace.cwd) headerMeta.push(`<span title="Working directory">⌂ ${escapeHtml(trace.cwd)}</span>`);
   if (trace.id) headerMeta.push(`<span title="Session id">ID ${escapeHtml(trace.id)}</span>`);
+  // Model and reasoning effort together, the way a run is actually described.
+  // Effort is a per-turn setting, so when a session changed gears the header
+  // shows the progression and the per-turn badges say which turn was which.
+  if (trace.model || trace.reasoningEffort) {
+    const efforts = Array.isArray(trace.efforts) && trace.efforts.length
+      ? trace.efforts
+      : (trace.reasoningEffort ? [trace.reasoningEffort] : []);
+    const label = [trace.model, efforts.map(titleCase).join(' → ')].filter(Boolean).join(' · ');
+    headerMeta.push(`<span title="Model and reasoning effort">${escapeHtml(label)}</span>`);
+  }
   // Subagent provenance, straight from session_meta. Only shown when the
   // trace is actually flagged as a subagent, so nothing here is guessed.
   const subagent = trace.traceType === 'subagent' ? (trace.subagent || null) : null;
