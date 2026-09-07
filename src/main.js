@@ -13,7 +13,9 @@ const SKIP_DIRS = new Set([
   'dist', 'build', 'coverage', '__pycache__'
 ]);
 const TRACE_SCAN_MAX_DEPTH = 8;
-const TRACE_FILE_LIMIT = 3;
+// The traces menu shows one harness at a time, so it has room for a real
+// list of recent sessions rather than a preview of three.
+const TRACE_FILE_LIMIT = 20;
 const TRACE_LOCATIONS = Object.freeze({
   codex: {
     label: 'Codex',

@@ -103,8 +103,9 @@ html, body {
   transform: translateX(-50%);
   width: min(780px, calc(100vw - 24px));
   height: fit-content;
-  max-height: none;
-  overflow: visible;
+  /* One harness at a time, but that list can be long. */
+  max-height: calc(100vh - 96px);
+  overflow: auto;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 0;
@@ -162,6 +163,44 @@ html, body {
   min-width: 0;
 }
 .trace-source-name strong { color: var(--text); font-size: 12px; }
+/* One tab per agent. The active tab names the source, so the card below it
+   only has to show the path. */
+.trace-sources-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+.trace-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.trace-tab:hover { color: var(--text); background: var(--row-hover); }
+/* The harness-* classes set the colour; the active tab wears it. */
+.trace-tab:not(.active) { color: var(--text-faint) !important; }
+.trace-tab.active { border-bottom-color: currentColor; font-weight: 600; }
+.trace-tab-count {
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 15px;
+}
+.trace-tab.active .trace-tab-count { border-color: currentColor; color: inherit; }
 .trace-source-name code {
   overflow: hidden;
   color: var(--text-faint);

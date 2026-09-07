@@ -47,6 +47,9 @@ const TRACE_SOURCES = [
 ];
 const TRACE_SOURCE_LIVE_MS = 2 * 60 * 1000;
 const traceSourceResults = new Map();
+// Which harness tab the traces menu is showing. Remembered, because people
+// come back to the same agent.
+let traceSourceTab = null;
 const traceSourceFileValues = new Map();
 let traceSourceFileSerial = 0;
 let traceSourcesRequest = 0;
@@ -442,7 +445,19 @@ function traceSourceFileToken(filePath) {
 function renderTraceSourcesMenu() {
   if (!els.traceSourcesMenu) return;
   traceSourceFileValues.clear();
-  const sourceCards = TRACE_SOURCES.map((source) => {
+  const activeKey = activeTraceSourceKey();
+  const tabs = TRACE_SOURCES.map((source) => {
+    const result = traceSourceResults.get(source.key);
+    const total = result && !result.error ? (Number(result.totalFiles) || 0) : null;
+    const active = source.key === activeKey;
+    // A source still scanning shows no count rather than a misleading zero.
+    const count = total == null ? '' : `<span class="trace-tab-count">${total}</span>`;
+    return `<button type="button" class="trace-tab${active ? ' active' : ''} harness-${escapeHtml(source.key)}"`
+      + ` data-trace-tab="${escapeHtml(source.key)}" role="tab" aria-selected="${active}"`
+      + ` title="${escapeHtml(source.location)}">${escapeHtml(source.label)}${count}</button>`;
+  }).join('');
+
+  const sourceCards = TRACE_SOURCES.filter((source) => source.key === activeKey).map((source) => {
     const result = traceSourceResults.get(source.key);
     const location = traceSourceLocationLabel(source, result);
     const folder = result && Array.isArray(result.roots)
@@ -478,7 +493,7 @@ function renderTraceSourcesMenu() {
         }).join('');
         const total = Number(result.totalFiles) || result.files.length;
         const more = total > result.files.length
-          ? `<div class="trace-source-count">Showing the latest ${result.files.length} of ${total} traces</div>`
+          ? `<div class="trace-source-count">Latest ${result.files.length} of ${total} traces · use Open folder for the rest</div>`
           : `<div class="trace-source-count">${total} trace${total === 1 ? '' : 's'}</div>`;
         body = `<div class="trace-source-files">${files}</div>${more}`;
       } else {
@@ -491,7 +506,7 @@ function renderTraceSourcesMenu() {
 
     return `<section class="trace-source-card">
       <div class="trace-source-head">
-        <div class="trace-source-name"><strong class="harness-${escapeHtml(source.key)}">${escapeHtml(source.label)}</strong><code>${escapeHtml(location)}</code></div>
+        <div class="trace-source-name"><code>${escapeHtml(location)}</code></div>
         ${folderButton}
       </div>
       ${body}
@@ -501,7 +516,14 @@ function renderTraceSourcesMenu() {
   els.traceSourcesMenu.innerHTML = `<div class="trace-sources-head">
     <div><strong>Open agent traces</strong><span>Choose a recent session</span></div>
     <button type="button" class="trace-sources-refresh" data-trace-refresh title="Refresh trace locations" aria-label="Refresh trace locations">↻</button>
-  </div><div class="trace-sources-list">${sourceCards}</div>`;
+  </div><div class="trace-sources-tabs" role="tablist">${tabs}</div><div class="trace-sources-list">${sourceCards}</div>`;
+
+  els.traceSourcesMenu.querySelectorAll('[data-trace-tab]').forEach((tab) => {
+    tab.addEventListener('click', (event) => {
+      event.stopPropagation();
+      setTraceSourceTab(tab.dataset.traceTab);
+    });
+  });
 
   const refresh = els.traceSourcesMenu.querySelector('[data-trace-refresh]');
   if (refresh) refresh.addEventListener('click', (event) => {
@@ -514,6 +536,44 @@ function renderTraceSourcesMenu() {
   els.traceSourcesMenu.querySelectorAll('[data-trace-folder]').forEach((button) => {
     button.addEventListener('click', () => openTraceSourceFolder(button.dataset.traceFolder));
   });
+}
+
+function saveTraceSourceTab() {
+  try { localStorage.setItem('jsonl-viewer:traceTab', traceSourceTab || ''); } catch (e) {}
+}
+
+function restoreTraceSourceTab() {
+  let saved = null;
+  try { saved = localStorage.getItem('jsonl-viewer:traceTab'); } catch (e) {}
+  if (traceSourceDefinition(saved)) traceSourceTab = saved;
+}
+
+// Until a tab is picked, land on the harness whose newest session is the most
+// recent, so opening the menu mid-run lands on the agent actually in use.
+function mostRecentTraceSourceKey() {
+  let best = null;
+  let bestTime = -Infinity;
+  for (const source of TRACE_SOURCES) {
+    const result = traceSourceResults.get(source.key);
+    const files = result && Array.isArray(result.files) ? result.files : [];
+    for (const file of files) {
+      const time = Number(file.mtimeMs) || 0;
+      if (time > bestTime) { bestTime = time; best = source.key; }
+    }
+  }
+  return best;
+}
+
+function activeTraceSourceKey() {
+  if (traceSourceDefinition(traceSourceTab)) return traceSourceTab;
+  return mostRecentTraceSourceKey() || TRACE_SOURCES[0].key;
+}
+
+function setTraceSourceTab(key) {
+  if (!traceSourceDefinition(key)) return;
+  traceSourceTab = key;
+  saveTraceSourceTab();
+  renderTraceSourcesMenu();
 }
 
 async function loadTraceSources() {
@@ -3187,6 +3247,7 @@ function setView(v) {
 
 // Initial render
 restoreTraceOrder();
+restoreTraceSourceTab();
 if (window.api && window.api.updateRecent) window.api.updateRecent(state.recent);
 render();
 console.log('[jsonl-viewer] renderer ready, view=' + state.view);
