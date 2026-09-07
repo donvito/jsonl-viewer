@@ -1427,6 +1427,12 @@ function bindTraceDelegates(view) {
       els.viewPane.scrollTop = scrollTop;
       return;
     }
+    const openAll = event.target.closest('[data-trace-open-all]');
+    if (openAll && view.contains(openAll)) {
+      event.stopPropagation();
+      if (state.filePath) openTraceSubagents(state.filePath);
+      return;
+    }
     const relation = event.target.closest('[data-trace-open]');
     if (relation && view.contains(relation)) {
       event.stopPropagation();
@@ -1514,6 +1520,30 @@ function traceGraph() {
   return { linked, byKey };
 }
 
+// Every trace below this one, depth first. A subagent can spawn its own
+// subagents, so "open the subagents" means the subtree, not just the children.
+function traceDescendants(node) {
+  const out = [];
+  (function walk(current) {
+    for (const child of current.children) {
+      out.push(child);
+      walk(child);
+    }
+  })(node);
+  return out;
+}
+
+// Opens the subtree and leaves the parent active, so the timeline you were
+// reading stays put and the newly opened traces sit under it in the explorer.
+async function openTraceSubagents(filePath) {
+  const node = traceNodeFor(filePath);
+  if (!node) return;
+  for (const child of traceDescendants(node)) {
+    if (!findOpen(child.key)) await openFile(child.key);
+  }
+  await openFile(filePath);
+}
+
 function traceNodeFor(filePath) {
   const graph = traceGraph();
   return graph ? graph.byKey.get(filePath) || null : null;
@@ -1589,8 +1619,11 @@ function traceRelationsHtml(trace) {
     const links = node.children
       .map((child) => traceRelationLink(child.key, traceNodeLabel(child), ''))
       .join('');
+    const descendants = traceDescendants(node).length;
+    const openAll = `<button type="button" class="trace-relation trace-relation-all" data-trace-open-all="1"`
+      + ` title="Open every subagent of this trace">Open all ${descendants}</button>`;
     parts.push(`<div class="trace-relation-row"><span class="trace-relation-label">`
-      + `Subagents <span class="trace-relation-count">${node.children.length}</span></span>${links}</div>`);
+      + `Subagents <span class="trace-relation-count">${node.children.length}</span></span>${links}${openAll}</div>`);
   }
 
   return parts.length ? `<div class="trace-relations">${parts.join('')}</div>` : '';
@@ -2798,6 +2831,14 @@ function showExplorerFileMenu(x, y, filePath, name, isOpen) {
   const items = [
     { label: 'Open', onClick: () => openFile(filePath) }
   ];
+  const node = traceNodeFor(filePath);
+  const subagents = node ? traceDescendants(node).length : 0;
+  if (subagents) {
+    items.push({
+      label: `Open with ${subagents} subagent${subagents === 1 ? '' : 's'}`,
+      onClick: () => openTraceSubagents(filePath)
+    });
+  }
   if (isOpen) items.push({ label: 'Close', onClick: () => closeFile(filePath) });
   if (window.api.showItemInFolder) {
     const isMac = /Mac/i.test(navigator.platform || navigator.userAgent || '');

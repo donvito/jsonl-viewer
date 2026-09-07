@@ -1244,6 +1244,13 @@ table.jsonl tr.error td .err-badge {
   white-space: nowrap;
 }
 .trace-relation:hover { border-color: var(--accent); color: var(--accent); }
+/* Reads as an action next to the subagents it opens, not as another one of
+   them, so it is dashed rather than boxed like the trace links. */
+.trace-relation-all {
+  border-style: dashed;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
 .trace-relation-prefix { color: var(--green); letter-spacing: 0.06em; }
 .trace-relation-missing {
   padding: 2px 7px;
