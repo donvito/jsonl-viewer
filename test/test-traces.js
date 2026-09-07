@@ -310,21 +310,26 @@ assert.deepStrictEqual(shifting.efforts, ['low', 'high']);
 const assistantEfforts = shifting.items.filter((i) => i.kind === 'assistant').map((i) => i.effort);
 assert.deepStrictEqual(assistantEfforts, ['low', 'high']);
 
-// ---- model display names ----
+// ---- model display names (Codex only) ----
 // An explicit table: listed ids get a name, everything else is passed through
 // verbatim rather than reformatted by a rule.
-assert.strictEqual(traceParser.modelDisplayName('gpt-6-astra'), 'GPT-6 Astra');
-assert.strictEqual(traceParser.modelDisplayName('gpt-5.6-luna'), 'GPT-5.6 Luna');
-assert.strictEqual(traceParser.modelDisplayName('claude-opus-5'), 'Claude Opus 5');
+assert.strictEqual(traceParser.modelDisplayName('gpt-6-astra', 'codex'), 'GPT-6 Astra');
+assert.strictEqual(traceParser.modelDisplayName('gpt-5.6-luna', 'codex'), 'GPT-5.6 Luna');
 // Ids are recorded with varying case, so lookup normalizes case only.
-assert.strictEqual(traceParser.modelDisplayName('deepseek-ai/DeepSeek-V4-Pro-0813'), 'DeepSeek V4 Pro');
-assert.strictEqual(traceParser.modelDisplayName('Qwen3.8-27B-Q4_K_M'), 'Qwen3.8 27B');
+assert.strictEqual(traceParser.modelDisplayName('GPT-6-ASTRA', 'codex'), 'GPT-6 Astra');
 // Unlisted ids must survive untouched — no prettifying, no truncation.
-assert.strictEqual(traceParser.modelDisplayName('some-unreleased-model-v9'), 'some-unreleased-model-v9');
-assert.strictEqual(traceParser.modelDisplayName('<synthetic>'), '<synthetic>');
-assert.strictEqual(traceParser.modelDisplayName(''), null);
-assert.strictEqual(traceParser.modelDisplayName(null), null);
-assert.strictEqual(traceParser.modelDisplayName(undefined), null);
+assert.strictEqual(traceParser.modelDisplayName('some-unreleased-model-v9', 'codex'), 'some-unreleased-model-v9');
+assert.strictEqual(traceParser.modelDisplayName('<synthetic>', 'codex'), '<synthetic>');
+assert.strictEqual(traceParser.modelDisplayName('', 'codex'), null);
+assert.strictEqual(traceParser.modelDisplayName(null, 'codex'), null);
+assert.strictEqual(traceParser.modelDisplayName(undefined, 'codex'), null);
+
+// Every other harness renders its id exactly as recorded, even when that id
+// happens to appear in the table.
+for (const format of ['claude', 'pi', 'hermes', 'sts', undefined]) {
+  assert.strictEqual(traceParser.modelDisplayName('claude-opus-5', format), 'claude-opus-5');
+  assert.strictEqual(traceParser.modelDisplayName('gpt-6-astra', format), 'gpt-6-astra');
+}
 
 assert.strictEqual(traceParser.detect([{ type: 'user', message: 'ordinary application log' }]), null);
 console.log('All trace assertions passed ✅');

@@ -61,6 +61,7 @@
   // seen, and guessing at a model's name is exactly what this file avoids
   // elsewhere. An id that is not listed is shown exactly as recorded.
   // Lookup is case-insensitive; that is normalization, not inference.
+  // Codex-only, like the rest of the thread metadata in this file.
   const MODEL_DISPLAY_NAMES = new Map(Object.entries({
     'gpt-6-astra': 'GPT-6 Astra',
     'gpt-5.6-luna': 'GPT-5.6 Luna',
@@ -82,9 +83,12 @@
     'liquid/lfm-2.5-2.6b:free': 'LFM2.5 2.6B'
   }));
 
-  function modelDisplayName(model) {
+  // Codex only. Every other harness shows exactly the id it recorded, so a
+  // Claude Code, Pi or Hermes trace reads the same as it always has.
+  function modelDisplayName(model, format) {
     const id = nonEmptyString(model);
     if (!id) return null;
+    if (format !== 'codex') return id;
     return MODEL_DISPLAY_NAMES.get(id.toLowerCase()) || id;
   }
 

@@ -1234,7 +1234,7 @@ function formatTraceTokens(value) {
 function renderTraceItem(item) {
   const idx = item.sourceLine == null ? '' : ` data-idx="${item.sourceLine}"`;
   const rawModel = item.provider && item.model ? `${item.provider}/${item.model}` : (item.model || item.provider || '');
-  const model = item.model ? modelLabel(item.model) : rawModel;
+  const model = item.model ? modelLabel(item.model, state.trace && state.trace.format) : rawModel;
   const usage = item.usage && (item.usage.input != null || item.usage.output != null)
     ? `${formatTraceTokens(item.usage.input)}↓ ${formatTraceTokens(item.usage.output)}↑${item.usage.cacheRead ? ` (${formatTraceTokens(item.usage.cacheRead)} cached)` : ''}`
     : '';
@@ -1469,12 +1469,12 @@ function traceNodeLabel(node) {
   return parts.join(' · ');
 }
 
-// Known model ids get a display name from the parser's table; anything else
-// is shown exactly as the trace recorded it.
-function modelLabel(model) {
+// Known Codex model ids get a display name from the parser's table. Other
+// harnesses, and ids the table does not list, are shown exactly as recorded.
+function modelLabel(model, format) {
   if (!model) return '';
   return (window.traceParser && window.traceParser.modelDisplayName
-    ? window.traceParser.modelDisplayName(model)
+    ? window.traceParser.modelDisplayName(model, format)
     : model) || model;
 }
 
@@ -1552,7 +1552,7 @@ function renderTrace(trace) {
     const efforts = Array.isArray(trace.efforts) && trace.efforts.length
       ? trace.efforts
       : (trace.reasoningEffort ? [trace.reasoningEffort] : []);
-    const label = [modelLabel(trace.model), efforts.map(titleCase).join(' → ')].filter(Boolean).join(' · ');
+    const label = [modelLabel(trace.model, trace.format), efforts.map(titleCase).join(' → ')].filter(Boolean).join(' · ');
     const hint = [trace.model, 'reasoning effort'].filter(Boolean).join(' · ');
     headerMeta.push(`<span title="${escapeHtml(hint)}">${escapeHtml(label)}</span>`);
   }
