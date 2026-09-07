@@ -1427,6 +1427,18 @@ function bindTraceDelegates(view) {
       els.viewPane.scrollTop = scrollTop;
       return;
     }
+    const ask = event.target.closest('[data-subagent-ask]');
+    if (ask && view.contains(ask)) {
+      event.stopPropagation();
+      const choice = ask.dataset.subagentAsk;
+      const filePath = state.filePath;
+      if (choice === 'dismiss') subagentPromptDismissed.add(filePath);
+      if (choice === 'never') setSubagentPref('never');
+      if (choice === 'always') setSubagentPref('always');
+      if (choice === 'open' || choice === 'always') openTraceSubagents(filePath);
+      else render();
+      return;
+    }
     const openAll = event.target.closest('[data-trace-open-all]');
     if (openAll && view.contains(openAll)) {
       event.stopPropagation();
@@ -1520,6 +1532,48 @@ function traceGraph() {
   return { linked, byKey };
 }
 
+// Whether opening a trace with subagents offers to open them too.
+//   ask (default) — offer once per trace, inline, dismissible
+//   always        — open them without asking
+//   never         — never offer
+let subagentPref = 'ask';
+// Traces the reader said "not now" to, for this session only.
+const subagentPromptDismissed = new Set();
+// Set while an open-all is running, so opening a child does not cascade into
+// its own prompt or auto-open.
+let openingSubagents = false;
+
+function restoreSubagentPref() {
+  let saved = null;
+  try { saved = localStorage.getItem('jsonl-viewer:openSubagents'); } catch (e) {}
+  if (saved === 'always' || saved === 'never' || saved === 'ask') subagentPref = saved;
+}
+
+function setSubagentPref(value) {
+  subagentPref = value;
+  try { localStorage.setItem('jsonl-viewer:openSubagents', value); } catch (e) {}
+}
+
+// Offer only when there is something to offer: subagents exist, at least one
+// is still closed, and this trace has not already been answered.
+function subagentPromptFor(filePath) {
+  if (subagentPref !== 'ask' || !filePath || subagentPromptDismissed.has(filePath)) return null;
+  const node = traceNodeFor(filePath);
+  if (!node || !node.children.length) return null;
+  const unopened = traceDescendants(node).filter((child) => !findOpen(child.key));
+  return unopened.length ? { node, unopened } : null;
+}
+
+// Called after a trace loads and again once its siblings have been probed,
+// since the links only exist once the graph knows about them.
+function maybeAutoOpenSubagents(filePath) {
+  if (openingSubagents || subagentPref !== 'always' || !filePath) return;
+  const node = traceNodeFor(filePath);
+  if (!node || !node.children.length) return;
+  if (!traceDescendants(node).some((child) => !findOpen(child.key))) return;
+  openTraceSubagents(filePath);
+}
+
 // Every trace below this one, depth first. A subagent can spawn its own
 // subagents, so "open the subagents" means the subtree, not just the children.
 function traceDescendants(node) {
@@ -1538,10 +1592,15 @@ function traceDescendants(node) {
 async function openTraceSubagents(filePath) {
   const node = traceNodeFor(filePath);
   if (!node) return;
-  for (const child of traceDescendants(node)) {
-    if (!findOpen(child.key)) await openFile(child.key);
+  openingSubagents = true;
+  try {
+    for (const child of traceDescendants(node)) {
+      if (!findOpen(child.key)) await openFile(child.key);
+    }
+    await openFile(filePath);
+  } finally {
+    openingSubagents = false;
   }
-  await openFile(filePath);
 }
 
 function traceNodeFor(filePath) {
@@ -1604,6 +1663,7 @@ function traceRelationsHtml(trace) {
   traceRelationValues.clear();
   const node = state.filePath ? traceNodeFor(state.filePath) : null;
   if (!node) return '';
+  const prompt = subagentPromptFor(state.filePath);
   const parts = [];
 
   if (node.parent) {
@@ -1620,10 +1680,22 @@ function traceRelationsHtml(trace) {
       .map((child) => traceRelationLink(child.key, traceNodeLabel(child), ''))
       .join('');
     const descendants = traceDescendants(node).length;
-    const openAll = `<button type="button" class="trace-relation trace-relation-all" data-trace-open-all="1"`
+    // While the offer is up it carries the same action, so don't show both.
+    const openAll = prompt ? '' : `<button type="button" class="trace-relation trace-relation-all" data-trace-open-all="1"`
       + ` title="Open every subagent of this trace">Open all ${descendants}</button>`;
     parts.push(`<div class="trace-relation-row"><span class="trace-relation-label">`
       + `Subagents <span class="trace-relation-count">${node.children.length}</span></span>${links}${openAll}</div>`);
+  }
+
+  if (prompt) {
+    const n = prompt.unopened.length;
+    parts.push(`<div class="trace-relation-row trace-subagent-ask">`
+      + `<span class="trace-ask-text">This trace spawned ${n} subagent${n === 1 ? '' : 's'}. Open ${n === 1 ? 'it' : 'them'} too?</span>`
+      + `<button type="button" class="trace-relation trace-ask-yes" data-subagent-ask="open">Open ${n === 1 ? '' : 'all '}${n}</button>`
+      + `<button type="button" class="trace-relation trace-ask-quiet" data-subagent-ask="always" title="Always open subagents with a trace">Always</button>`
+      + `<button type="button" class="trace-relation trace-ask-quiet" data-subagent-ask="dismiss">Not now</button>`
+      + `<button type="button" class="trace-relation trace-ask-quiet" data-subagent-ask="never" title="Stop offering this">Never</button>`
+      + `</div>`);
   }
 
   return parts.length ? `<div class="trace-relations">${parts.join('')}</div>` : '';
@@ -2546,6 +2618,7 @@ async function probeSiblingTraces(filePath) {
   }
   // The header's relations depend on what the probe just found.
   if (state.view === 'trace' && state.trace) render();
+  maybeAutoOpenSubagents(filePath);
 }
 
 async function openExplorerFolder(dirPath, { persist = true } = {}) {
@@ -3289,6 +3362,7 @@ function setView(v) {
 // Initial render
 restoreTraceOrder();
 restoreTraceSourceTab();
+restoreSubagentPref();
 if (window.api && window.api.updateRecent) window.api.updateRecent(state.recent);
 render();
 console.log('[jsonl-viewer] renderer ready, view=' + state.view);

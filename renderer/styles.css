@@ -1244,6 +1244,23 @@ table.jsonl tr.error td .err-badge {
   white-space: nowrap;
 }
 .trace-relation:hover { border-color: var(--accent); color: var(--accent); }
+/* The offer shown when a trace with subagents is opened. Tinted so it reads
+   as a question rather than another row of metadata, but it stays inline —
+   it must never block reading the trace. */
+.trace-subagent-ask {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  background: var(--bg-elev);
+}
+.trace-ask-text {
+  margin-right: 4px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.trace-ask-yes { border-color: var(--accent); color: var(--accent); }
+.trace-ask-quiet { color: var(--text-faint); }
 /* Reads as an action next to the subagents it opens, not as another one of
    them, so it is dashed rather than boxed like the trace links. */
 .trace-relation-all {
