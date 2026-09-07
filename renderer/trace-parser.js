@@ -56,6 +56,38 @@
     return 'unknown';
   }
 
+  // Display names for model ids, as an explicit table rather than a rule that
+  // reformats arbitrary strings: a heuristic would mangle ids it has never
+  // seen, and guessing at a model's name is exactly what this file avoids
+  // elsewhere. An id that is not listed is shown exactly as recorded.
+  // Lookup is case-insensitive; that is normalization, not inference.
+  const MODEL_DISPLAY_NAMES = new Map(Object.entries({
+    'gpt-6-astra': 'GPT-6 Astra',
+    'gpt-5.6-luna': 'GPT-5.6 Luna',
+    'gpt-5.5': 'GPT-5.5',
+    'gpt-5.1-codex-max': 'GPT-5.1 Codex Max',
+    'codex-auto-review': 'Codex Auto Review',
+    'claude-opus-5': 'Claude Opus 5',
+    'claude-sonnet-5': 'Claude Sonnet 5',
+    'claude-fable-5': 'Claude Fable 5',
+    'claude-fable-5-1': 'Claude Fable 5.1',
+    'claude-haiku-4-5-20251001': 'Claude Haiku 4.5',
+    'deepseek-ai/deepseek-v4-pro-0813': 'DeepSeek V4 Pro',
+    'zai-org/glm-5.3-flash': 'GLM-5.3 Flash',
+    'qwen/qwen3.6-35b-a3b': 'Qwen3.6 35B A3B',
+    'qwen3.8-27b-q4_k_m': 'Qwen3.8 27B',
+    'nvidia/nemotron-3.5-lightning:free': 'Nemotron 3.5 Lightning',
+    'nvidia/nemotron-3-ultra-550b-a55b:free': 'Nemotron 3 Ultra 550B',
+    'liquidai/lfm2.5-2.6b-gguf:q4_k_m': 'LFM2.5 2.6B',
+    'liquid/lfm-2.5-2.6b:free': 'LFM2.5 2.6B'
+  }));
+
+  function modelDisplayName(model) {
+    const id = nonEmptyString(model);
+    if (!id) return null;
+    return MODEL_DISPLAY_NAMES.get(id.toLowerCase()) || id;
+  }
+
   function nonEmptyString(value) {
     return value == null || value === '' ? null : String(value);
   }
@@ -1067,6 +1099,7 @@
     normalize,
     parse,
     getTraceType,
+    modelDisplayName,
     codexTraceInfo,
     linkTraces,
     normalizeUsage,

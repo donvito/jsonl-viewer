@@ -310,5 +310,21 @@ assert.deepStrictEqual(shifting.efforts, ['low', 'high']);
 const assistantEfforts = shifting.items.filter((i) => i.kind === 'assistant').map((i) => i.effort);
 assert.deepStrictEqual(assistantEfforts, ['low', 'high']);
 
+// ---- model display names ----
+// An explicit table: listed ids get a name, everything else is passed through
+// verbatim rather than reformatted by a rule.
+assert.strictEqual(traceParser.modelDisplayName('gpt-6-astra'), 'GPT-6 Astra');
+assert.strictEqual(traceParser.modelDisplayName('gpt-5.6-luna'), 'GPT-5.6 Luna');
+assert.strictEqual(traceParser.modelDisplayName('claude-opus-5'), 'Claude Opus 5');
+// Ids are recorded with varying case, so lookup normalizes case only.
+assert.strictEqual(traceParser.modelDisplayName('deepseek-ai/DeepSeek-V4-Pro-0813'), 'DeepSeek V4 Pro');
+assert.strictEqual(traceParser.modelDisplayName('Qwen3.8-27B-Q4_K_M'), 'Qwen3.8 27B');
+// Unlisted ids must survive untouched — no prettifying, no truncation.
+assert.strictEqual(traceParser.modelDisplayName('some-unreleased-model-v9'), 'some-unreleased-model-v9');
+assert.strictEqual(traceParser.modelDisplayName('<synthetic>'), '<synthetic>');
+assert.strictEqual(traceParser.modelDisplayName(''), null);
+assert.strictEqual(traceParser.modelDisplayName(null), null);
+assert.strictEqual(traceParser.modelDisplayName(undefined), null);
+
 assert.strictEqual(traceParser.detect([{ type: 'user', message: 'ordinary application log' }]), null);
 console.log('All trace assertions passed ✅');

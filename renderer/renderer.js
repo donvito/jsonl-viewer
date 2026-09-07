@@ -1233,7 +1233,8 @@ function formatTraceTokens(value) {
 
 function renderTraceItem(item) {
   const idx = item.sourceLine == null ? '' : ` data-idx="${item.sourceLine}"`;
-  const model = item.provider && item.model ? `${item.provider}/${item.model}` : (item.model || item.provider || '');
+  const rawModel = item.provider && item.model ? `${item.provider}/${item.model}` : (item.model || item.provider || '');
+  const model = item.model ? modelLabel(item.model) : rawModel;
   const usage = item.usage && (item.usage.input != null || item.usage.output != null)
     ? `${formatTraceTokens(item.usage.input)}↓ ${formatTraceTokens(item.usage.output)}↑${item.usage.cacheRead ? ` (${formatTraceTokens(item.usage.cacheRead)} cached)` : ''}`
     : '';
@@ -1243,7 +1244,7 @@ function renderTraceItem(item) {
   if (usage) metadata.push(`<span class="trace-usage">${escapeHtml(usage)}</span>`);
   if (item.metadata && item.metadata.durationMs != null) metadata.push(`<span class="trace-usage">${escapeHtml(String(item.metadata.durationMs))} ms</span>`);
   if (item.metadata && item.metadata.costUsd != null) metadata.push(`<span class="trace-usage">$${escapeHtml(Number(item.metadata.costUsd).toFixed(4))}</span>`);
-  const identity = `<span class="trace-role-glyph">${traceRoleGlyph(item)}</span><strong>${escapeHtml(traceRoleLabel(item))}</strong>${model ? `<span class="trace-entry-model">${escapeHtml(model)}</span>` : ''}${item.effort ? `<span class="trace-effort effort-${escapeHtml(item.effort)}" title="Reasoning effort">${escapeHtml(item.effort)}</span>` : ''}${item.timestamp ? `<time class="trace-entry-time">${escapeHtml(item.timestamp)}</time>` : ''}`;
+  const identity = `<span class="trace-role-glyph">${traceRoleGlyph(item)}</span><strong>${escapeHtml(traceRoleLabel(item))}</strong>${model ? `<span class="trace-entry-model" title="${escapeHtml(rawModel)}">${escapeHtml(model)}</span>` : ''}${item.effort ? `<span class="trace-effort effort-${escapeHtml(item.effort)}" title="Reasoning effort">${escapeHtml(item.effort)}</span>` : ''}${item.timestamp ? `<time class="trace-entry-time">${escapeHtml(item.timestamp)}</time>` : ''}`;
   return `<article class="trace-entry trace-entry-${escapeHtml(item.kind)}"${idx}>
     <header class="trace-entry-header">
       <div class="trace-entry-identity">${identity}</div>
@@ -1468,6 +1469,15 @@ function traceNodeLabel(node) {
   return parts.join(' · ');
 }
 
+// Known model ids get a display name from the parser's table; anything else
+// is shown exactly as the trace recorded it.
+function modelLabel(model) {
+  if (!model) return '';
+  return (window.traceParser && window.traceParser.modelDisplayName
+    ? window.traceParser.modelDisplayName(model)
+    : model) || model;
+}
+
 function titleCase(value) {
   const text = String(value || '');
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : '';
@@ -1542,8 +1552,9 @@ function renderTrace(trace) {
     const efforts = Array.isArray(trace.efforts) && trace.efforts.length
       ? trace.efforts
       : (trace.reasoningEffort ? [trace.reasoningEffort] : []);
-    const label = [trace.model, efforts.map(titleCase).join(' → ')].filter(Boolean).join(' · ');
-    headerMeta.push(`<span title="Model and reasoning effort">${escapeHtml(label)}</span>`);
+    const label = [modelLabel(trace.model), efforts.map(titleCase).join(' → ')].filter(Boolean).join(' · ');
+    const hint = [trace.model, 'reasoning effort'].filter(Boolean).join(' · ');
+    headerMeta.push(`<span title="${escapeHtml(hint)}">${escapeHtml(label)}</span>`);
   }
   // Subagent provenance, straight from session_meta. Only shown when the
   // trace is actually flagged as a subagent, so nothing here is guessed.
