@@ -2500,9 +2500,10 @@ function renderExplorer() {
   if (els.explorerOpenSection && els.explorerOpenList) {
     els.explorerOpenSection.hidden = explorer.openFiles.length === 0;
     els.explorerOpenList.innerHTML = '';
-    for (const f of explorer.openFiles) {
+    for (const f of nestByTraceGraph(explorer.openFiles)) {
       const row = document.createElement('div');
       row.className = 'ex-row ex-file' + (samePath(f.path, explorer.activePath) ? ' active' : '');
+      if (f.nestDepth) row.style.paddingLeft = (f.nestDepth * 14) + 'px';
       row.dataset.path = f.path;
       row.title = f.path;
       const ph = document.createElement('span');
@@ -2665,13 +2666,19 @@ function appendExplorerNode(parent, entry, depth) {
   }
 }
 
-// Subagent traces are listed under the trace that spawned them, indented one
-// level per hop. Files that are not linked keep their original position, so a
-// folder of ordinary JSONL looks exactly as it did.
 function orderedDirEntries(dirPath) {
-  const entries = explorer.children[dirPath] || [];
+  return nestByTraceGraph(explorer.children[dirPath] || []);
+}
+
+// Subagent traces are listed under the trace that spawned them, indented one
+// level per hop. Used by both explorer lists, so it works on anything with a
+// `path`. Entries the graph does not reach keep their original position, and a
+// subagent whose parent is absent from *this* list stays at the top level
+// rather than being indented under nothing — so closing a parent in the open
+// files list pops its children back out.
+function nestByTraceGraph(entries) {
   const graph = traceGraph();
-  if (!graph) return entries;
+  if (!graph || !entries.length) return entries;
 
   const byPath = new Map(entries.map((entry) => [entry.path, entry]));
   const placed = new Set();
@@ -2685,14 +2692,14 @@ function orderedDirEntries(dirPath) {
     if (!node) return;
     for (const child of node.children) {
       const childEntry = byPath.get(child.key);
-      // A child living in another folder is left to that folder's listing.
+      // A child that is not in this list is left to whichever list holds it.
       if (childEntry) emit(childEntry, nestDepth + 1);
     }
   };
 
   for (const entry of entries) {
     const node = graph.byKey.get(entry.path);
-    // Anything with a parent in this same folder is emitted by that parent.
+    // Anything with a parent in this same list is emitted by that parent.
     if (node && node.parent && byPath.has(node.parent.key)) continue;
     emit(entry, 0);
   }
