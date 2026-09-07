@@ -56,6 +56,80 @@
     return 'unknown';
   }
 
+  function nonEmptyString(value) {
+    return value == null || value === '' ? null : String(value);
+  }
+
+  // The normalized identity of a Codex rollout, used both for the open trace
+  // and for files the explorer has only probed.
+  function codexTraceInfo(payload) {
+    const p = isObject(payload) ? payload : {};
+    return {
+      id: nonEmptyString(p.id) || nonEmptyString(p.session_id),
+      type: getTraceType(p.thread_source),
+      threadSource: typeof p.thread_source === 'string' ? p.thread_source : null,
+      parentThreadId: nonEmptyString(p.parent_thread_id),
+      agentRole: nonEmptyString(p.agent_role),
+      agentPath: nonEmptyString(p.agent_path),
+      agentNickname: nonEmptyString(p.agent_nickname)
+    };
+  }
+
+  // Links subagents to the trace that spawned them, using only the ids in
+  // session_meta: a subagent belongs to the trace whose id equals its
+  // parent_thread_id. Filenames, models, roles and timestamps are ignored.
+  //
+  // Entries are { key, id, type, parentThreadId }; `key` is whatever the
+  // caller uses to address a trace (a file path, here). Returns every node in
+  // input order, plus the roots — traces with no resolved parent, which covers
+  // mains, unknowns, and subagents whose parent is not loaded. A subagent that
+  // could not be linked keeps its parent id in `unresolvedParentId` so the UI
+  // can still show it.
+  function linkTraces(entries) {
+    const nodes = (Array.isArray(entries) ? entries : [])
+      .filter(isObject)
+      .map((entry) => ({
+        key: entry.key,
+        id: nonEmptyString(entry.id),
+        type: entry.type || 'unknown',
+        parentThreadId: nonEmptyString(entry.parentThreadId),
+        entry,
+        parent: null,
+        children: [],
+        unresolvedParentId: null
+      }));
+
+    const byId = new Map();
+    for (const node of nodes) {
+      // First writer wins, so a duplicated id cannot silently re-parent a tree.
+      if (node.id && !byId.has(node.id)) byId.set(node.id, node);
+    }
+
+    for (const node of nodes) {
+      if (node.type !== 'subagent' || !node.parentThreadId) continue;
+      const parent = byId.get(node.parentThreadId);
+      // A parent that is missing, is the node itself, or already sits below it
+      // would produce a cycle rather than a tree.
+      if (!parent || parent === node || hasAncestor(parent, node)) {
+        node.unresolvedParentId = node.parentThreadId;
+        continue;
+      }
+      node.parent = parent;
+      parent.children.push(node);
+    }
+
+    return { nodes, byId, roots: nodes.filter((node) => !node.parent) };
+  }
+
+  function hasAncestor(node, candidate) {
+    let current = node.parent;
+    while (current) {
+      if (current === candidate) return true;
+      current = current.parent;
+    }
+    return false;
+  }
+
   function codexSubagentInfo(payload) {
     const info = {};
     let found = false;
@@ -700,8 +774,10 @@
     const headerPayload = headerRecord ? headerRecord.value.payload || {} : {};
     const trace = createTrace(descriptor, headerPayload);
     traceTitleFromHeader(trace, headerPayload);
-    trace.threadSource = typeof headerPayload.thread_source === 'string' ? headerPayload.thread_source : null;
-    trace.traceType = getTraceType(headerPayload.thread_source);
+    const codexInfo = codexTraceInfo(headerPayload);
+    trace.threadSource = codexInfo.threadSource;
+    trace.traceType = codexInfo.type;
+    trace.parentThreadId = codexInfo.parentThreadId;
     trace.subagent = trace.traceType === 'subagent' ? codexSubagentInfo(headerPayload) : null;
     const registry = createRegistry();
     let currentModel = headerPayload.model || null;
@@ -957,6 +1033,8 @@
     normalize,
     parse,
     getTraceType,
+    codexTraceInfo,
+    linkTraces,
     normalizeUsage,
     normalizedContentBlocks,
     asTimestamp

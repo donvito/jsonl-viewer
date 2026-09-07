@@ -154,5 +154,91 @@ const oddSource = run('Codex unknown source', codexWithMeta({ thread_source: 'co
 assert.strictEqual(oddSource.traceType, 'unknown');
 assert.strictEqual(oddSource.subagent, null);
 
+// ---- main/subagent linking ----
+// A subagent belongs to the trace whose id equals its parent_thread_id.
+// Nothing else — filename, model, role, timestamp — takes part.
+const info = (key, id, type, parentThreadId) => ({ key, id, type, parentThreadId });
+const childKeys = (node) => node.children.map((c) => c.key);
+const nodeFor = (linked, key) => linked.nodes.find((n) => n.key === key);
+
+// session_meta normalization feeds the linker.
+const metaMain = traceParser.codexTraceInfo({ id: 'p1', thread_source: 'user' });
+assert.deepStrictEqual(metaMain, {
+  id: 'p1', type: 'main', threadSource: 'user',
+  parentThreadId: null, agentRole: null, agentPath: null, agentNickname: null
+});
+const metaSub = traceParser.codexTraceInfo({
+  id: 'c1', thread_source: 'subagent', parent_thread_id: 'p1',
+  agent_role: 'explorer', agent_path: '/root/x', agent_nickname: 'Luna'
+});
+assert.deepStrictEqual(metaSub, {
+  id: 'c1', type: 'subagent', threadSource: 'subagent', parentThreadId: 'p1',
+  agentRole: 'explorer', agentPath: '/root/x', agentNickname: 'Luna'
+});
+
+// main with one child
+let linked = traceParser.linkTraces([
+  info('main.jsonl', 'p1', 'main'),
+  info('kid.jsonl', 'c1', 'subagent', 'p1')
+]);
+assert.deepStrictEqual(childKeys(nodeFor(linked, 'main.jsonl')), ['kid.jsonl']);
+assert.strictEqual(nodeFor(linked, 'kid.jsonl').parent.key, 'main.jsonl');
+assert.deepStrictEqual(linked.roots.map((n) => n.key), ['main.jsonl']);
+
+// main with multiple children, and a grandchild one level down
+linked = traceParser.linkTraces([
+  info('main.jsonl', 'p1', 'main'),
+  info('a.jsonl', 'c1', 'subagent', 'p1'),
+  info('b.jsonl', 'c2', 'subagent', 'p1'),
+  info('c.jsonl', 'c3', 'subagent', 'c2')
+]);
+assert.deepStrictEqual(childKeys(nodeFor(linked, 'main.jsonl')), ['a.jsonl', 'b.jsonl']);
+assert.deepStrictEqual(childKeys(nodeFor(linked, 'b.jsonl')), ['c.jsonl']);
+assert.deepStrictEqual(linked.roots.map((n) => n.key), ['main.jsonl']);
+
+// subagent whose parent is not loaded stays visible as a root, and keeps the
+// parent id so the UI can show it as unresolved
+linked = traceParser.linkTraces([info('orphan.jsonl', 'c1', 'subagent', 'missing-parent')]);
+const orphan = nodeFor(linked, 'orphan.jsonl');
+assert.strictEqual(orphan.parent, null);
+assert.strictEqual(orphan.unresolvedParentId, 'missing-parent');
+assert.deepStrictEqual(linked.roots.map((n) => n.key), ['orphan.jsonl']);
+
+// unrelated traces are all roots and gain no children
+linked = traceParser.linkTraces([
+  info('one.jsonl', 'p1', 'main'),
+  info('two.jsonl', 'p2', 'main')
+]);
+assert.deepStrictEqual(linked.roots.map((n) => n.key), ['one.jsonl', 'two.jsonl']);
+assert.deepStrictEqual(linked.nodes.map((n) => n.children.length), [0, 0]);
+
+// unknown thread_source never links, in either direction
+linked = traceParser.linkTraces([
+  info('main.jsonl', 'p1', 'main'),
+  info('guardian.jsonl', 'g1', 'unknown', 'p1'),
+  info('kid.jsonl', 'c1', 'subagent', 'g1')
+]);
+assert.deepStrictEqual(childKeys(nodeFor(linked, 'main.jsonl')), []);
+assert.strictEqual(nodeFor(linked, 'guardian.jsonl').parent, null);
+// An unknown trace is still a valid parent by id — only its own type is unknown.
+assert.deepStrictEqual(childKeys(nodeFor(linked, 'guardian.jsonl')), ['kid.jsonl']);
+
+// A cycle must not hang or vanish: both stay reachable as roots.
+linked = traceParser.linkTraces([
+  info('a.jsonl', 'a', 'subagent', 'b'),
+  info('b.jsonl', 'b', 'subagent', 'a')
+]);
+assert.strictEqual(linked.roots.length, 1);
+assert.strictEqual(nodeFor(linked, 'b.jsonl').unresolvedParentId, 'a');
+
+// A duplicated id must not re-parent anything.
+linked = traceParser.linkTraces([
+  info('first.jsonl', 'dup', 'main'),
+  info('second.jsonl', 'dup', 'main'),
+  info('kid.jsonl', 'c1', 'subagent', 'dup')
+]);
+assert.deepStrictEqual(childKeys(nodeFor(linked, 'first.jsonl')), ['kid.jsonl']);
+assert.deepStrictEqual(childKeys(nodeFor(linked, 'second.jsonl')), []);
+
 assert.strictEqual(traceParser.detect([{ type: 'user', message: 'ordinary application log' }]), null);
 console.log('All trace assertions passed ✅');

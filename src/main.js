@@ -626,12 +626,10 @@ async function readHeadValues(filePath) {
   }
 }
 
-function threadSourceOf(values) {
+function sessionMetaPayload(values) {
   for (const value of values) {
     if (!value || typeof value !== 'object' || value.type !== 'session_meta') continue;
-    const payload = value.payload;
-    if (!payload || typeof payload !== 'object') return null;
-    return typeof payload.thread_source === 'string' ? payload.thread_source : null;
+    return value.payload && typeof value.payload === 'object' ? value.payload : {};
   }
   return null;
 }
@@ -650,11 +648,12 @@ async function probeTraceFile(filePath) {
   if (values.length) {
     const descriptor = traceParser.detect(values, filePath);
     if (descriptor) {
-      info = {
-        format: descriptor.format,
-        harness: descriptor.harness,
-        threadSource: descriptor.format === 'codex' ? threadSourceOf(values) : null
-      };
+      info = { format: descriptor.format, harness: descriptor.harness };
+      // Only Codex reports thread identity today; the ids are what let the
+      // viewer nest subagents under the trace that spawned them.
+      if (descriptor.format === 'codex') {
+        Object.assign(info, traceParser.codexTraceInfo(sessionMetaPayload(values)));
+      }
     }
   }
   traceProbeCache.set(filePath, { stamp, info });
@@ -705,7 +704,7 @@ async function withThreadSource(key, files) {
   if (key !== 'codex') return files;
   return Promise.all(files.map(async (file) => {
     const info = await probeTraceFile(file.path);
-    return { ...file, threadSource: info ? info.threadSource : null };
+    return { ...file, threadSource: (info && info.threadSource) || null };
   }));
 }
 

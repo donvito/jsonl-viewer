@@ -274,6 +274,12 @@ function fileName(p) {
   return String(p || '').split(/[\\/]/).pop() || String(p || '');
 }
 
+function dirName(p) {
+  const parts = String(p || '').split(/[\\/]/);
+  parts.pop();
+  return parts.join('/');
+}
+
 function findOpen(filePath) {
   return explorer.openFiles.find((f) => samePath(f.path, filePath)) || null;
 }
@@ -1360,6 +1366,13 @@ function bindTraceDelegates(view) {
       els.viewPane.scrollTop = scrollTop;
       return;
     }
+    const relation = event.target.closest('[data-trace-open]');
+    if (relation && view.contains(relation)) {
+      event.stopPropagation();
+      const filePath = traceRelationValues.get(relation.dataset.traceOpen);
+      if (filePath) openFile(filePath);
+      return;
+    }
     const copy = event.target.closest('.trace-copy-button');
     if (copy && view.contains(copy)) {
       event.stopPropagation();
@@ -1406,7 +1419,7 @@ function explorerRowLabel(row, name, filePath) {
     harness.textContent = info.harness;
     meta.appendChild(harness);
     // Codex is the only format that reports main vs subagent today.
-    const traceType = info.traceType || traceTypeOf(info.threadSource);
+    const traceType = info.type || traceTypeOf(info.threadSource);
     const typeLabel = TRACE_TYPE_LABELS[traceType];
     if (typeLabel) {
       const badge = document.createElement('span');
@@ -1418,6 +1431,41 @@ function explorerRowLabel(row, name, filePath) {
     label.appendChild(meta);
   }
   row.appendChild(label);
+}
+
+// The link graph over every trace the explorer knows about: open files plus
+// anything probed from a listed folder. Rebuilt on demand — the set is small
+// and it keeps the graph honest when files are opened or closed.
+function traceGraph() {
+  if (!window.traceParser || !window.traceParser.linkTraces) return null;
+  const entries = Object.entries(explorer.traceInfo)
+    .filter(([, info]) => info && info.id)
+    .map(([key, info]) => ({
+      key,
+      id: info.id,
+      type: info.type || 'unknown',
+      parentThreadId: info.parentThreadId || null,
+      info
+    }));
+  if (!entries.length) return null;
+  const linked = window.traceParser.linkTraces(entries);
+  const byKey = new Map(linked.nodes.map((node) => [node.key, node]));
+  return { linked, byKey };
+}
+
+function traceNodeFor(filePath) {
+  const graph = traceGraph();
+  return graph ? graph.byKey.get(filePath) || null : null;
+}
+
+// A short human label for a linked trace, e.g. "Explorer · Luna".
+function traceNodeLabel(node) {
+  const info = node.entry.info || {};
+  const parts = [];
+  if (info.agentRole) parts.push(info.agentRole.charAt(0).toUpperCase() + info.agentRole.slice(1));
+  if (info.agentNickname) parts.push(info.agentNickname);
+  if (!parts.length) parts.push(fileName(node.key));
+  return parts.join(' · ');
 }
 
 function traceTypeOf(threadSource) {
@@ -1433,6 +1481,44 @@ function traceTypeBadge(trace) {
     ? 'Subagent trace (session_meta.thread_source = subagent)'
     : 'Main conversation (session_meta.thread_source = user)';
   return `<span class="trace-type-badge trace-type-${escapeHtml(trace.traceType)}" title="${escapeHtml(title)}">${label}</span>`;
+}
+
+// Parent and children come from the id graph, so they only appear once the
+// sibling files have been seen. Each one opens that trace when clicked.
+const traceRelationValues = new Map();
+let traceRelationSerial = 0;
+
+function traceRelationLink(filePath, label, prefix) {
+  const token = `trace-relation-${++traceRelationSerial}`;
+  traceRelationValues.set(token, filePath);
+  return `<button type="button" class="trace-relation" data-trace-open="${escapeHtml(token)}" title="${escapeHtml(filePath)}">`
+    + `<span class="trace-relation-prefix">${escapeHtml(prefix)}</span>${escapeHtml(label)}</button>`;
+}
+
+function traceRelationsHtml(trace) {
+  traceRelationValues.clear();
+  const node = state.filePath ? traceNodeFor(state.filePath) : null;
+  if (!node) return '';
+  const parts = [];
+
+  if (node.parent) {
+    parts.push(`<div class="trace-relation-row"><span class="trace-relation-label">Parent</span>`
+      + traceRelationLink(node.parent.key, traceNodeLabel(node.parent), 'MAIN ') + '</div>');
+  } else if (node.unresolvedParentId) {
+    // The parent exists somewhere, just not among the traces we have seen.
+    parts.push(`<div class="trace-relation-row"><span class="trace-relation-label">Parent</span>`
+      + `<span class="trace-relation-missing" title="Parent trace not loaded">${escapeHtml(node.unresolvedParentId)} · not loaded</span></div>`);
+  }
+
+  if (node.children.length) {
+    const links = node.children
+      .map((child) => traceRelationLink(child.key, traceNodeLabel(child), ''))
+      .join('');
+    parts.push(`<div class="trace-relation-row"><span class="trace-relation-label">`
+      + `Subagents <span class="trace-relation-count">${node.children.length}</span></span>${links}</div>`);
+  }
+
+  return parts.length ? `<div class="trace-relations">${parts.join('')}</div>` : '';
 }
 
 function renderTrace(trace) {
@@ -1451,7 +1537,8 @@ function renderTrace(trace) {
     if (subagent.agentRole) headerMeta.push(`<span title="Agent role">ROLE ${escapeHtml(subagent.agentRole)}</span>`);
     if (subagent.agentNickname) headerMeta.push(`<span title="Agent nickname">AGENT ${escapeHtml(subagent.agentNickname)}</span>`);
     if (subagent.agentPath) headerMeta.push(`<span title="Agent path">PATH ${escapeHtml(subagent.agentPath)}</span>`);
-    if (subagent.parentThreadId) headerMeta.push(`<span title="Parent thread id">PARENT ${escapeHtml(subagent.parentThreadId)}</span>`);
+    // The parent thread id is not repeated here: the relations row below owns
+    // it, as a link when the parent is loaded and as the raw id when not.
   }
   headerMeta.push(`<span>${items.length} items</span>`);
   if (tools) headerMeta.push(`<span>${tools} tool call${tools === 1 ? '' : 's'}</span>`);
@@ -1459,8 +1546,9 @@ function renderTrace(trace) {
     ? '<span class="trace-live-badge" title="This file is still being written to"><span class="trace-live-dot"></span>LIVE</span>'
     : '';
   const typeBadge = traceTypeBadge(trace);
+  const relations = traceRelationsHtml(trace);
   const headerHtml = `<div class="trace-header-title"><span class="trace-agent-glyph">◉</span><strong>${escapeHtml(trace.title || `${trace.label} trace`)}</strong><span class="trace-format-badge harness-${escapeHtml(trace.format || 'unknown')}">${escapeHtml(trace.label || trace.format)}</span>${typeBadge}${liveBadge}</div>
-      <div class="trace-header-meta">${headerMeta.join(' · ')}</div>`;
+      <div class="trace-header-meta">${headerMeta.join(' · ')}</div>${relations}`;
 
   const fileKey = `${state.filePath || ''}|${state.traceLayout}|${state.traceOrder}`;
   let view = els.viewPane.querySelector('.trace-view');
@@ -1750,6 +1838,10 @@ function applyLoadedData(data, { preserveView = false } = {}) {
   setFileInfo(`${data.name} · ${formatBytes(data.sizeBytes)} · ${data.totalLines} lines`);
   addRecent(data.path);
   ensureOpenFile(data.path, data.name, detectedTrace || null);
+  // Codex writes a thread and the subagents it spawns into the same folder,
+  // so probing the siblings is what makes the parent/child links resolve
+  // without the user opening that folder in the explorer first.
+  if (detectedTrace && detectedTrace.format === 'codex') probeSiblingTraces(data.path);
   explorer.activePath = data.path;
   markDirty(false);
   render();
@@ -1836,7 +1928,15 @@ function ensureOpenFile(filePath, name, trace) {
   // An opened file is fully parsed, so its own trace beats any probe result.
   if (trace !== undefined) {
     explorer.traceInfo[filePath] = trace
-      ? { harness: trace.harness, format: trace.format, traceType: trace.traceType || null }
+      ? {
+          harness: trace.harness,
+          format: trace.format,
+          id: trace.id || null,
+          type: trace.traceType || 'unknown',
+          parentThreadId: trace.parentThreadId || null,
+          agentRole: (trace.subagent && trace.subagent.agentRole) || null,
+          agentNickname: (trace.subagent && trace.subagent.agentNickname) || null
+        }
       : null;
   }
   const existing = findOpen(filePath);
@@ -2315,6 +2415,20 @@ async function probeTraceInfo(paths) {
   }
 }
 
+async function probeSiblingTraces(filePath) {
+  if (!window.api.listDir) return;
+  const dir = dirName(filePath);
+  if (!dir) return;
+  try {
+    const data = await window.api.listDir(dir);
+    await probeTraceInfo((data.entries || []).filter((e) => e.kind === 'file').map((e) => e.path));
+  } catch (e) {
+    return;
+  }
+  // The header's relations depend on what the probe just found.
+  if (state.view === 'trace' && state.trace) render();
+}
+
 async function openExplorerFolder(dirPath, { persist = true } = {}) {
   if (!dirPath) {
     if (!window.api.openFolder) return;
@@ -2438,7 +2552,9 @@ function renderExplorer() {
     els.explorerTree.appendChild(empty);
     return;
   }
-  for (const entry of roots) appendExplorerNode(els.explorerTree, entry, 0);
+  for (const entry of orderedDirEntries(explorer.folder)) {
+    appendExplorerNode(els.explorerTree, entry, entry.nestDepth || 0);
+  }
 }
 
 function renderFileTabs() {
@@ -2543,9 +2659,46 @@ function appendExplorerNode(parent, entry, depth) {
   parent.appendChild(row);
 
   if (isDir && explorer.expanded.has(entry.path)) {
-    const kids = explorer.children[entry.path] || [];
-    for (const child of kids) appendExplorerNode(parent, child, depth + 1);
+    for (const child of orderedDirEntries(entry.path)) {
+      appendExplorerNode(parent, child, depth + (child.nestDepth || 0) + 1);
+    }
   }
+}
+
+// Subagent traces are listed under the trace that spawned them, indented one
+// level per hop. Files that are not linked keep their original position, so a
+// folder of ordinary JSONL looks exactly as it did.
+function orderedDirEntries(dirPath) {
+  const entries = explorer.children[dirPath] || [];
+  const graph = traceGraph();
+  if (!graph) return entries;
+
+  const byPath = new Map(entries.map((entry) => [entry.path, entry]));
+  const placed = new Set();
+  const out = [];
+
+  const emit = (entry, nestDepth) => {
+    if (placed.has(entry.path)) return;
+    placed.add(entry.path);
+    out.push(nestDepth ? { ...entry, nestDepth } : entry);
+    const node = graph.byKey.get(entry.path);
+    if (!node) return;
+    for (const child of node.children) {
+      const childEntry = byPath.get(child.key);
+      // A child living in another folder is left to that folder's listing.
+      if (childEntry) emit(childEntry, nestDepth + 1);
+    }
+  };
+
+  for (const entry of entries) {
+    const node = graph.byKey.get(entry.path);
+    // Anything with a parent in this same folder is emitted by that parent.
+    if (node && node.parent && byPath.has(node.parent.key)) continue;
+    emit(entry, 0);
+  }
+  // Whatever the graph did not reach keeps its listed order.
+  for (const entry of entries) if (!placed.has(entry.path)) out.push(entry);
+  return out;
 }
 
 function showExplorerFileMenu(x, y, filePath, name, isOpen) {

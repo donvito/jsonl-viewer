@@ -1145,6 +1145,62 @@ table.jsonl tr.error td .err-badge {
   letter-spacing: 0.06em;
   line-height: 15px;
 }
+/* Parent / subagent navigation under the trace header. */
+.trace-relations {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.trace-relation-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.trace-relation-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+.trace-relation-count {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text-dim);
+}
+.trace-relation {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trace-relation:hover { border-color: var(--accent); color: var(--accent); }
+.trace-relation-prefix { color: var(--green); letter-spacing: 0.06em; }
+.trace-relation-missing {
+  padding: 2px 7px;
+  border: 1px dashed var(--border);
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+}
 .trace-header-meta {
   display: flex;
   flex-wrap: wrap;
