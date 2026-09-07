@@ -37,6 +37,37 @@
     return value !== null && typeof value === 'object' && !Array.isArray(value);
   }
 
+  // Codex rollouts say in session_meta whether a thread was started by the
+  // user or spawned as a subagent. `thread_source` is the only trustworthy
+  // signal for that: model names, file names and agent roles all vary between
+  // runs, so nothing else is inferred here.
+  //
+  //   type TraceType = 'main' | 'subagent' | 'unknown'
+  const CODEX_SUBAGENT_FIELDS = [
+    ['parent_thread_id', 'parentThreadId'],
+    ['agent_role', 'agentRole'],
+    ['agent_path', 'agentPath'],
+    ['agent_nickname', 'agentNickname']
+  ];
+
+  function getTraceType(threadSource) {
+    if (threadSource === 'user') return 'main';
+    if (threadSource === 'subagent') return 'subagent';
+    return 'unknown';
+  }
+
+  function codexSubagentInfo(payload) {
+    const info = {};
+    let found = false;
+    for (const [key, alias] of CODEX_SUBAGENT_FIELDS) {
+      const value = isObject(payload) ? payload[key] : undefined;
+      if (value == null || value === '') continue;
+      info[alias] = String(value);
+      found = true;
+    }
+    return found ? info : null;
+  }
+
   function hasOwn(value, key) {
     return isObject(value) && Object.prototype.hasOwnProperty.call(value, key);
   }
@@ -133,12 +164,13 @@
       value.type === 'last-prompt' ||
       value.parentUuid != null || value.sessionId != null || value.session_id != null
     );
-    const hasHermesSignal = values.some((value) =>
-      value.version === 'hermes-agent' ||
-      (value.sessionId != null && value.parentUuid !== undefined)
-    );
-    if ((pathLooksLike(filePath, '/.hermes/') || hasHermesSignal) &&
-        (hasClaudeAssistant || hasClaudeUser) && hasHermesSignal) {
+    // Hermes exports share Claude Code's envelope, so only a Hermes-specific
+    // marker separates them: the version stamp, or the export directory.
+    // Matching on the shared shape (sessionId + parentUuid) would claim every
+    // Claude Code session, which is what it used to do.
+    const hasHermesSignal = values.some((value) => value.version === 'hermes-agent');
+    if ((hasHermesSignal || pathLooksLike(filePath, '/.hermes/')) &&
+        (hasClaudeAssistant || hasClaudeUser)) {
       return traceDescriptor('hermes', 'Hermes', { header: null });
     }
     if (hasClaudeAssistant && (hasClaudeUser || hasClaudeSignal) &&
@@ -668,6 +700,9 @@
     const headerPayload = headerRecord ? headerRecord.value.payload || {} : {};
     const trace = createTrace(descriptor, headerPayload);
     traceTitleFromHeader(trace, headerPayload);
+    trace.threadSource = typeof headerPayload.thread_source === 'string' ? headerPayload.thread_source : null;
+    trace.traceType = getTraceType(headerPayload.thread_source);
+    trace.subagent = trace.traceType === 'subagent' ? codexSubagentInfo(headerPayload) : null;
     const registry = createRegistry();
     let currentModel = headerPayload.model || null;
     let currentProvider = headerPayload.model_provider || null;
@@ -921,6 +956,7 @@
     detect,
     normalize,
     parse,
+    getTraceType,
     normalizeUsage,
     normalizedContentBlocks,
     asTimestamp

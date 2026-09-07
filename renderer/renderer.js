@@ -59,6 +59,9 @@ const explorer = {
   autoFolderDisabled: false,
   children: {},
   expanded: new Set(),
+  // path -> { harness, format, threadSource } for files the explorer lists,
+  // filled in by the main process without opening them.
+  traceInfo: {},
   openFiles: [],
   sessions: {},
   activePath: null
@@ -460,8 +463,10 @@ function renderTraceSourcesMenu() {
           const live = Date.now() - file.mtimeMs < TRACE_SOURCE_LIVE_MS
             ? '<span class="trace-source-live" title="Written to in the last couple of minutes"><span class="trace-live-dot"></span>LIVE</span>'
             : '';
+          // Codex entries carry thread_source from their session_meta header.
+          const typeBadge = traceTypeBadge({ traceType: traceTypeOf(file.threadSource) });
           return `<button type="button" class="trace-source-file" data-trace-file="${escapeHtml(token)}" title="${escapeHtml(file.path)}">
-            <span class="trace-source-file-name">${escapeHtml(file.name)}${live}</span>
+            <span class="trace-source-file-name">${escapeHtml(file.name)}${typeBadge}${live}</span>
             <span class="trace-source-file-detail">${escapeHtml(detail)}</span>
           </button>`;
         }).join('');
@@ -480,7 +485,7 @@ function renderTraceSourcesMenu() {
 
     return `<section class="trace-source-card">
       <div class="trace-source-head">
-        <div class="trace-source-name"><strong>${escapeHtml(source.label)}</strong><code>${escapeHtml(location)}</code></div>
+        <div class="trace-source-name"><strong class="harness-${escapeHtml(source.key)}">${escapeHtml(source.label)}</strong><code>${escapeHtml(location)}</code></div>
         ${folderButton}
       </div>
       ${body}
@@ -1371,6 +1376,65 @@ function bindTraceDelegates(view) {
   });
 }
 
+// MAIN / SUBAGENT comes from session_meta.thread_source only. Traces with a
+// missing or unrecognised thread_source get no badge rather than a guess.
+const TRACE_TYPE_LABELS = { main: 'MAIN', subagent: 'SUBAGENT' };
+
+// An explorer row grows a second line only when the file is a trace, so
+// ordinary JSONL files stay one line tall.
+function explorerTraceInfo(filePath) {
+  const info = explorer.traceInfo[filePath];
+  return info && info.harness ? info : null;
+}
+
+function explorerRowLabel(row, name, filePath) {
+  const info = explorerTraceInfo(filePath);
+  const label = document.createElement('span');
+  label.className = 'ex-label';
+  const nameEl = document.createElement('span');
+  nameEl.className = 'ex-name';
+  nameEl.textContent = name;
+  label.appendChild(nameEl);
+  if (info) {
+    row.classList.add('ex-has-trace');
+    const meta = document.createElement('span');
+    meta.className = 'ex-meta';
+    const harness = document.createElement('span');
+    // The format is already a stable slug (codex/claude/pi/hermes/sts), so it
+    // doubles as the class that gives each harness its own colour.
+    harness.className = `ex-harness harness-${info.format || 'unknown'}`;
+    harness.textContent = info.harness;
+    meta.appendChild(harness);
+    // Codex is the only format that reports main vs subagent today.
+    const traceType = info.traceType || traceTypeOf(info.threadSource);
+    const typeLabel = TRACE_TYPE_LABELS[traceType];
+    if (typeLabel) {
+      const badge = document.createElement('span');
+      badge.className = `ex-trace-type trace-type-${traceType}`;
+      badge.textContent = typeLabel;
+      badge.title = traceType === 'subagent' ? 'Subagent trace' : 'Main conversation';
+      meta.appendChild(badge);
+    }
+    label.appendChild(meta);
+  }
+  row.appendChild(label);
+}
+
+function traceTypeOf(threadSource) {
+  return window.traceParser && window.traceParser.getTraceType
+    ? window.traceParser.getTraceType(threadSource)
+    : 'unknown';
+}
+
+function traceTypeBadge(trace) {
+  const label = TRACE_TYPE_LABELS[trace.traceType];
+  if (!label) return '';
+  const title = trace.traceType === 'subagent'
+    ? 'Subagent trace (session_meta.thread_source = subagent)'
+    : 'Main conversation (session_meta.thread_source = user)';
+  return `<span class="trace-type-badge trace-type-${escapeHtml(trace.traceType)}" title="${escapeHtml(title)}">${label}</span>`;
+}
+
 function renderTrace(trace) {
   traceCopyValues.clear();
   updateTraceControls();
@@ -1380,12 +1444,22 @@ function renderTrace(trace) {
   const headerMeta = [];
   if (trace.cwd) headerMeta.push(`<span title="Working directory">⌂ ${escapeHtml(trace.cwd)}</span>`);
   if (trace.id) headerMeta.push(`<span title="Session id">ID ${escapeHtml(trace.id)}</span>`);
+  // Subagent provenance, straight from session_meta. Only shown when the
+  // trace is actually flagged as a subagent, so nothing here is guessed.
+  const subagent = trace.traceType === 'subagent' ? (trace.subagent || null) : null;
+  if (subagent) {
+    if (subagent.agentRole) headerMeta.push(`<span title="Agent role">ROLE ${escapeHtml(subagent.agentRole)}</span>`);
+    if (subagent.agentNickname) headerMeta.push(`<span title="Agent nickname">AGENT ${escapeHtml(subagent.agentNickname)}</span>`);
+    if (subagent.agentPath) headerMeta.push(`<span title="Agent path">PATH ${escapeHtml(subagent.agentPath)}</span>`);
+    if (subagent.parentThreadId) headerMeta.push(`<span title="Parent thread id">PARENT ${escapeHtml(subagent.parentThreadId)}</span>`);
+  }
   headerMeta.push(`<span>${items.length} items</span>`);
   if (tools) headerMeta.push(`<span>${tools} tool call${tools === 1 ? '' : 's'}</span>`);
   const liveBadge = state.stream.live
     ? '<span class="trace-live-badge" title="This file is still being written to"><span class="trace-live-dot"></span>LIVE</span>'
     : '';
-  const headerHtml = `<div class="trace-header-title"><span class="trace-agent-glyph">◉</span><strong>${escapeHtml(trace.title || `${trace.label} trace`)}</strong><span class="trace-format-badge">${escapeHtml(trace.label || trace.format)}</span>${liveBadge}</div>
+  const typeBadge = traceTypeBadge(trace);
+  const headerHtml = `<div class="trace-header-title"><span class="trace-agent-glyph">◉</span><strong>${escapeHtml(trace.title || `${trace.label} trace`)}</strong><span class="trace-format-badge harness-${escapeHtml(trace.format || 'unknown')}">${escapeHtml(trace.label || trace.format)}</span>${typeBadge}${liveBadge}</div>
       <div class="trace-header-meta">${headerMeta.join(' · ')}</div>`;
 
   const fileKey = `${state.filePath || ''}|${state.traceLayout}|${state.traceOrder}`;
@@ -1675,7 +1749,7 @@ function applyLoadedData(data, { preserveView = false } = {}) {
   recomputeAllKeys();
   setFileInfo(`${data.name} · ${formatBytes(data.sizeBytes)} · ${data.totalLines} lines`);
   addRecent(data.path);
-  ensureOpenFile(data.path, data.name);
+  ensureOpenFile(data.path, data.name, detectedTrace || null);
   explorer.activePath = data.path;
   markDirty(false);
   render();
@@ -1757,8 +1831,14 @@ function restoreSession(sess) {
   els.viewPane.scrollLeft = sess.scrollLeft || 0;
 }
 
-function ensureOpenFile(filePath, name) {
+function ensureOpenFile(filePath, name, trace) {
   if (!filePath) return;
+  // An opened file is fully parsed, so its own trace beats any probe result.
+  if (trace !== undefined) {
+    explorer.traceInfo[filePath] = trace
+      ? { harness: trace.harness, format: trace.format, traceType: trace.traceType || null }
+      : null;
+  }
   const existing = findOpen(filePath);
   if (existing) return existing;
   const entry = { path: filePath, name: name || fileName(filePath), dirty: false };
@@ -2204,7 +2284,35 @@ async function loadDir(dirPath) {
   if (!window.api.listDir) return [];
   const data = await window.api.listDir(dirPath);
   explorer.children[dirPath] = data.entries || [];
+  probeTraceInfo((data.entries || []).filter((e) => e.kind === 'file').map((e) => e.path));
   return data;
+}
+
+// Labels arrive after the tree is already on screen: the listing renders
+// immediately and the rows gain their harness line once the probe answers.
+// Big folders are walked in batches so every row is eventually labelled
+// without asking the main process to read hundreds of files at once.
+const TRACE_PROBE_BATCH = 100;
+
+async function probeTraceInfo(paths) {
+  if (!window.api.probeTraces) return;
+  const wanted = paths.filter((p) => p && !(p in explorer.traceInfo));
+  if (!wanted.length) return;
+  for (let i = 0; i < wanted.length; i += TRACE_PROBE_BATCH) {
+    const batch = wanted.slice(i, i + TRACE_PROBE_BATCH);
+    let results;
+    try {
+      results = await window.api.probeTraces(batch);
+    } catch (e) {
+      return;
+    }
+    // Record every path in the batch, so an unreadable or non-trace file is
+    // not probed again on the next listing.
+    for (const filePath of batch) {
+      explorer.traceInfo[filePath] = (results && results[filePath]) || null;
+    }
+    renderExplorer();
+  }
 }
 
 async function openExplorerFolder(dirPath, { persist = true } = {}) {
@@ -2286,10 +2394,7 @@ function renderExplorer() {
       const ph = document.createElement('span');
       ph.className = 'ex-caret-ph';
       row.appendChild(ph);
-      const name = document.createElement('span');
-      name.className = 'ex-name';
-      name.textContent = f.name;
-      row.appendChild(name);
+      explorerRowLabel(row, f.name, f.path);
       if (f.dirty) {
         const dot = document.createElement('span');
         dot.className = 'ex-dirty';
@@ -2417,10 +2522,14 @@ function appendExplorerNode(parent, entry, depth) {
   }
   row.appendChild(caret);
 
-  const name = document.createElement('span');
-  name.className = 'ex-name';
-  name.textContent = entry.name;
-  row.appendChild(name);
+  if (isDir) {
+    const name = document.createElement('span');
+    name.className = 'ex-name';
+    name.textContent = entry.name;
+    row.appendChild(name);
+  } else {
+    explorerRowLabel(row, entry.name, entry.path);
+  }
 
   if (isDir) {
     row.addEventListener('click', () => toggleExplorerDir(entry.path));

@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('api', {
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
   listDir: (dirPath) => ipcRenderer.invoke('dir:list', dirPath),
   listTraceFiles: (source) => ipcRenderer.invoke('trace:list', source),
+  probeTraces: (paths) => ipcRenderer.invoke('trace:probe', paths),
   statPath: (filePath) => ipcRenderer.invoke('fs:stat', filePath),
   showItemInFolder: (filePath) => ipcRenderer.invoke('shell:showItem', filePath),
   watchFile: (filePath) => ipcRenderer.invoke('file:watch', filePath),

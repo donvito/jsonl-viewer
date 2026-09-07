@@ -101,7 +101,7 @@ html, body {
   top: 64px;
   left: 50%;
   transform: translateX(-50%);
-  width: min(430px, calc(100vw - 24px));
+  width: min(780px, calc(100vw - 24px));
   height: fit-content;
   max-height: none;
   overflow: visible;
@@ -199,19 +199,20 @@ html, body {
 }
 .trace-source-file:hover { background: var(--btn-hover); border-color: var(--border); }
 .trace-source-file-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Rollout names are long and the whole name is what tells sessions apart,
+     so they wrap rather than truncate. */
+  overflow-wrap: anywhere;
   font-family: var(--mono);
   font-size: 11px;
 }
 .trace-source-file-detail {
   width: 100%;
-  overflow: hidden;
   color: var(--text-faint);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   font-family: var(--mono);
   font-size: 9px;
 }
@@ -707,6 +708,13 @@ html, body {
   font-size: 10px;
 }
 .ex-caret-ph { width: 14px; flex: 0 0 auto; }
+.ex-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
 .ex-name {
   flex: 1;
   overflow: hidden;
@@ -715,6 +723,40 @@ html, body {
   font-family: var(--sans);
 }
 .ex-file .ex-name { font-family: var(--mono); font-size: 11.5px; }
+/* A trace row carries a second line, so it drops the fixed single-line
+   height and top-aligns its caret, dirty dot and close button. */
+.ex-row.ex-has-trace {
+  height: auto;
+  min-height: 34px;
+  align-items: flex-start;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.ex-row.ex-has-trace .ex-caret-ph,
+.ex-row.ex-has-trace .ex-caret { margin-top: 1px; }
+.ex-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+/* The harness reads as a badge of the same weight as MAIN/SUBAGENT, with a
+   colour per agent so a folder of traces can be scanned at a glance. */
+.ex-harness {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 4px;
+  border: 1px solid var(--text-faint);
+  color: var(--text-dim);
+  background: var(--bg-elev);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  line-height: 15px;
+}
 .ex-dirty {
   width: 8px;
   height: 8px;
@@ -1057,6 +1099,7 @@ table.jsonl tr.error td .err-badge {
 }
 .trace-agent-glyph { color: var(--accent); font-size: 16px; }
 .trace-format-badge,
+.trace-type-badge,
 .trace-model {
   display: inline-flex;
   align-items: center;
@@ -1073,7 +1116,35 @@ table.jsonl tr.error td .err-badge {
   font-family: var(--mono);
   font-size: 10px;
 }
+/* Fallback for a trace whose format has no colour of its own. */
 .trace-format-badge { color: var(--accent); }
+/* One colour per harness, shared by the trace header badge, the trace
+   picker headings and the explorer rows, so the same agent looks the same
+   everywhere it is named. Declared after every badge base rule it overrides,
+   which is what lets a single class win. */
+.harness-codex,
+.trace-source-name strong.harness-codex { color: var(--accent); border-color: var(--accent); }
+.harness-claude,
+.trace-source-name strong.harness-claude { color: var(--orange); border-color: var(--orange); }
+.harness-pi,
+.trace-source-name strong.harness-pi { color: var(--yellow); border-color: var(--yellow); }
+.harness-hermes,
+.trace-source-name strong.harness-hermes { color: var(--red); border-color: var(--red); }
+.harness-sts,
+.trace-source-name strong.harness-sts { color: var(--text-dim); border-color: var(--text-dim); }
+.trace-type-badge { letter-spacing: 0.06em; flex: none; }
+.trace-type-main { color: var(--green); border-color: var(--green); }
+.trace-type-subagent { color: var(--orange); border-color: var(--orange); }
+.ex-trace-type {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  line-height: 15px;
+}
 .trace-header-meta {
   display: flex;
   flex-wrap: wrap;

@@ -96,5 +96,63 @@ assert.strictEqual(hermesTrace.stats.toolCalls, 1);
 assert.strictEqual(hermesTrace.stats.toolResults, 1);
 assert.strictEqual(hermesTrace.harness, 'Hermes');
 
+// Regression: Claude Code records carry sessionId + parentUuid too, so that
+// shape alone must not make a session look like a Hermes export.
+const claudeWithParentUuid = [
+  { type: 'user', sessionId: 'claude-2', parentUuid: null, cwd: '/tmp/project', uuid: 'cu-1', timestamp: '2026-01-01T00:00:01Z', message: { role: 'user', content: 'Inspect the code' } },
+  { type: 'assistant', sessionId: 'claude-2', parentUuid: 'cu-1', uuid: 'ca-1', timestamp: '2026-01-01T00:00:02Z', message: {
+    role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'Done.' }], usage: { input_tokens: 5, output_tokens: 2 }
+  } }
+];
+const claudeParented = run('Claude Code with parentUuid', claudeWithParentUuid, 'claude',
+  '/Users/test/.claude/projects/-Users-test-repo/f9f32b93.jsonl');
+assert.strictEqual(claudeParented.harness, 'Claude Code');
+// Same records without the path hint must still not be claimed by Hermes.
+assert.strictEqual(traceParser.detect(claudeWithParentUuid).format, 'claude');
+
+// Codex main vs subagent classification comes from session_meta.thread_source.
+function codexWithMeta(meta) {
+  return [Object.assign({}, codex[0], { payload: Object.assign({}, codex[0].payload, meta) })]
+    .concat(codex.slice(1));
+}
+
+assert.strictEqual(traceParser.getTraceType('user'), 'main');
+assert.strictEqual(traceParser.getTraceType('subagent'), 'subagent');
+assert.strictEqual(traceParser.getTraceType('cron'), 'unknown');
+assert.strictEqual(traceParser.getTraceType(undefined), 'unknown');
+
+const mainTrace = run('Codex main', codexWithMeta({ thread_source: 'user', model: 'gpt-6-astra' }), 'codex');
+assert.strictEqual(mainTrace.traceType, 'main');
+assert.strictEqual(mainTrace.subagent, null);
+assert.strictEqual(mainTrace.model, 'gpt-6-astra');
+
+const subagentTrace = run('Codex subagent', codexWithMeta({
+  thread_source: 'subagent',
+  model: 'gpt-5.6-luna',
+  parent_thread_id: '01a079f2-0000-0000-0000-000000000000',
+  agent_role: 'explorer',
+  agent_path: '/root/trace_refresh',
+  agent_nickname: 'Luna'
+}), 'codex');
+assert.strictEqual(subagentTrace.traceType, 'subagent');
+assert.deepStrictEqual(subagentTrace.subagent, {
+  parentThreadId: '01a079f2-0000-0000-0000-000000000000',
+  agentRole: 'explorer',
+  agentPath: '/root/trace_refresh',
+  agentNickname: 'Luna'
+});
+
+// A subagent trace without the optional fields still classifies, and only the
+// fields that are present are surfaced.
+const sparseSubagent = run('Codex sparse subagent', codexWithMeta({ thread_source: 'subagent', agent_role: 'explorer' }), 'codex');
+assert.deepStrictEqual(sparseSubagent.subagent, { agentRole: 'explorer' });
+
+// Missing or unrecognised values must not be guessed from anything else.
+assert.strictEqual(codexTrace.traceType, 'unknown');
+assert.strictEqual(codexTrace.subagent, null);
+const oddSource = run('Codex unknown source', codexWithMeta({ thread_source: 'compacted', agent_role: 'explorer' }), 'codex');
+assert.strictEqual(oddSource.traceType, 'unknown');
+assert.strictEqual(oddSource.subagent, null);
+
 assert.strictEqual(traceParser.detect([{ type: 'user', message: 'ordinary application log' }]), null);
 console.log('All trace assertions passed ✅');

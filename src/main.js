@@ -2,6 +2,9 @@ const { app, BrowserWindow, ipcMain, dialog, Menu, clipboard, shell } = require(
 const path = require('path');
 const fs = require('fs');
 const { readJsonlFile, readJsonlTail } = require('./jsonl-read');
+// The trace parser is dependency-free, so the same detection the renderer
+// uses for an open file also labels files the explorer has only listed.
+const traceParser = require('../renderer/trace-parser.js');
 
 const DATA_EXTS = ['.jsonl', '.ndjson', '.json', '.log', '.txt'];
 const TRACE_FILE_EXTS = ['.jsonl', '.ndjson'];
@@ -593,6 +596,80 @@ async function scanTraceFiles(dirPath, rootPath, rootDisplayPath, depth, files) 
   }
 }
 
+// What harness wrote a file, without opening it: read the head, run the same
+// detector the viewer uses, and for Codex pick up session_meta.thread_source.
+// The head is enough because every format announces itself in its first
+// records. Results are cached per mtime/size so re-listing a folder is free.
+const TRACE_HEAD_BYTES = 64 * 1024;
+const TRACE_PROBE_MAX_FILES = 100;
+const traceProbeCache = new Map();
+
+async function readHeadValues(filePath) {
+  let handle;
+  try {
+    handle = await fs.promises.open(filePath, 'r');
+    const buffer = Buffer.alloc(TRACE_HEAD_BYTES);
+    const { bytesRead } = await handle.read(buffer, 0, TRACE_HEAD_BYTES, 0);
+    const lines = buffer.slice(0, bytesRead).toString('utf8').split('\n');
+    // The last line is truncated unless the whole file fit in one read.
+    if (bytesRead === TRACE_HEAD_BYTES) lines.pop();
+    const values = [];
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try { values.push(JSON.parse(line)); } catch {}
+    }
+    return values;
+  } catch {
+    return [];
+  } finally {
+    if (handle) await handle.close().catch(() => {});
+  }
+}
+
+function threadSourceOf(values) {
+  for (const value of values) {
+    if (!value || typeof value !== 'object' || value.type !== 'session_meta') continue;
+    const payload = value.payload;
+    if (!payload || typeof payload !== 'object') return null;
+    return typeof payload.thread_source === 'string' ? payload.thread_source : null;
+  }
+  return null;
+}
+
+async function probeTraceFile(filePath) {
+  if (!filePath || typeof filePath !== 'string') return null;
+  let stat;
+  try { stat = await fs.promises.stat(filePath); } catch { return null; }
+  if (!stat.isFile()) return null;
+  const stamp = `${stat.mtimeMs}:${stat.size}`;
+  const cached = traceProbeCache.get(filePath);
+  if (cached && cached.stamp === stamp) return cached.info;
+
+  const values = await readHeadValues(filePath);
+  let info = null;
+  if (values.length) {
+    const descriptor = traceParser.detect(values, filePath);
+    if (descriptor) {
+      info = {
+        format: descriptor.format,
+        harness: descriptor.harness,
+        threadSource: descriptor.format === 'codex' ? threadSourceOf(values) : null
+      };
+    }
+  }
+  traceProbeCache.set(filePath, { stamp, info });
+  return info;
+}
+
+ipcMain.handle('trace:probe', async (_e, paths) => {
+  if (!Array.isArray(paths)) return {};
+  const targets = paths.filter((p) => typeof p === 'string').slice(0, TRACE_PROBE_MAX_FILES);
+  const results = await Promise.all(targets.map((p) => probeTraceFile(p)));
+  const out = {};
+  targets.forEach((p, i) => { out[p] = results[i]; });
+  return out;
+});
+
 ipcMain.handle('trace:list', async (_e, key) => {
   const info = traceLocationInfo(key);
   if (!info) return { key, label: key, roots: [], files: [], error: 'Unknown trace source' };
@@ -620,9 +697,17 @@ ipcMain.handle('trace:list', async (_e, key) => {
     openPath: openRoot && openRoot.path,
     exists: roots.some((root) => root.exists),
     totalFiles: uniqueFiles.length,
-    files: uniqueFiles.slice(0, TRACE_FILE_LIMIT)
+    files: await withThreadSource(info.key, uniqueFiles.slice(0, TRACE_FILE_LIMIT))
   };
 });
+
+async function withThreadSource(key, files) {
+  if (key !== 'codex') return files;
+  return Promise.all(files.map(async (file) => {
+    const info = await probeTraceFile(file.path);
+    return { ...file, threadSource: info ? info.threadSource : null };
+  }));
+}
 
 ipcMain.handle('shell:showItem', async (_e, filePath) => {
   if (!filePath || typeof filePath !== 'string') return false;
